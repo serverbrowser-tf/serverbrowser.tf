@@ -5,7 +5,7 @@ server browser. The root problem with the death of community servers is their
 extremely low discoverability. Opening up the stock server browser and sorting
 by players today, you'll find pages and pages of 24/7 2fort, Versus Saxton
 Hale, 100 player TF2, etc. It would be extremely difficult to spot a vanilla 24
-player server that is desparately trying to find new players
+player server that is desperately trying to find new players
 
 serverbrowser.tf is my way of contributing back to the community and creating a
 way to find "vanilla" TF2 servers. The site was originally going to only allow
