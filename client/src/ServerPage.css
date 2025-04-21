@@ -1,0 +1,33 @@
+.server-page {
+  display: grid;
+  grid-template-columns: 300px 1fr 1fr;
+  grid-auto-rows: max-content 350px 400px;
+  grid-template-areas:
+    "title title title"
+    "maps . ."
+    "maps historical historical";
+  place-items: start center;
+  gap: 2em;
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  position: relative;
+
+  .title {
+    grid-area: title;
+    h1,
+    h2 {
+      margin: 0;
+    }
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+  }
+
+  .grid-area-maps {
+    grid-area: maps;
+  }
+  .grid-area-historical {
+    grid-area: historical;
+  }
+}

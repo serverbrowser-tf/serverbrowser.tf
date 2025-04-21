@@ -1,0 +1,10 @@
+.server-detail {
+  height: 100%;
+  width: 50%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  grid-template-rows: 1fr;
+  place-items: center;
+  gap: 1em;
+}

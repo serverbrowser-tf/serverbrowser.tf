@@ -1,0 +1,27 @@
+.context-menu {
+  position: fixed;
+  background-color: var(--background-color2);
+  color: white;
+  width: 150px;
+  z-index: 10;
+
+  border: 1px solid var(--border-color);
+  margin: 0;
+  padding: 0;
+
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+
+  button {
+    border: 0;
+    width: 100%;
+    background-color: transparent;
+    text-align: left;
+    place-items: center start;
+
+    &:hover {
+      background-color: #9d511b;
+    }
+  }
+}

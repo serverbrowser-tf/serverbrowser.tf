@@ -1,0 +1,24 @@
+.ban-modal {
+  display: grid;
+  gap: 1em;
+  .serverinfo {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  form {
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    label {
+      grid-column: span 2;
+    }
+  }
+
+  input,
+  select {
+    width: 300px;
+  }
+}

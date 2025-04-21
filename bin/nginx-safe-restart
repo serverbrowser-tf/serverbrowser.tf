@@ -1,0 +1,97 @@
+#!/bin/bash
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+is_nginx_running() {
+  if pgrep -x nginx >/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+if is_nginx_running; then
+  if [ ! -f /run/nginx.pid ]; then
+    log "Nginx is running but PID file is missing. Recreating..."
+
+    NGINX_PID=$(pgrep -o nginx)
+    echo $NGINX_PID > /run/nginx.pid
+    log "Created /run/nginx.pid with PID $NGINX_PID"
+  fi
+
+  log "Attempting nginx reload..."
+  RELOAD_OUTPUT=$(nginx -s reload 2>&1)
+  RELOAD_STATUS=$?
+
+  if [ $RELOAD_STATUS -eq 0 ]; then
+    log "Nginx reload successful"
+    exit 0
+  fi
+
+  log "Reload failed with output: $RELOAD_OUTPUT"
+  log "Attempting to stop nginx with SIGTERM..."
+  pkill -TERM -x nginx
+
+  for i in {1..5}; do
+    if ! is_nginx_running; then
+      log "Nginx stopped successfully with SIGTERM"
+      break
+    fi
+    sleep 1
+    if [ $i -eq 5 ]; then
+      log "SIGTERM timeout reached"
+    fi
+  done
+
+  if is_nginx_running; then
+    log "Attempting to stop nginx with SIGINT..."
+    pkill -INT -x nginx
+
+    for i in {1..10}; do
+      if ! is_nginx_running; then
+        log "Nginx stopped successfully with SIGINT"
+        break
+      fi
+      sleep 1
+      if [ $i -eq 10 ]; then
+        log "SIGINT timeout reached"
+      fi
+    done
+  fi
+
+  if is_nginx_running; then
+    log "Attempting to stop nginx with SIGKILL..."
+    pkill -KILL -x nginx
+
+    for i in {1..60}; do
+      if ! is_nginx_running; then
+        log "Nginx stopped successfully with SIGKILL"
+        break
+      fi
+      sleep 1
+      if [ $i -eq 60 ]; then
+        log "ERROR: SIGKILL failed to stop nginx after 60 seconds"
+        log "Exiting script without restarting nginx"
+        exit 1
+      fi
+    done
+  fi
+
+  if is_nginx_running; then
+    log "ERROR: Failed to stop nginx processes despite all attempts"
+    exit 1
+  fi
+fi
+
+log "Starting nginx..."
+systemctl start nginx
+
+if systemctl is-active nginx >/dev/null; then
+  log "Nginx started successfully"
+  exit 0
+else
+  log "ERROR: Failed to start nginx"
+  exit 1
+fi

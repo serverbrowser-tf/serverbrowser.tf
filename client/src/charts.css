@@ -1,0 +1,112 @@
+.stats-at-a-glance {
+  display: flex;
+  gap: 0.5em 2em;
+  flex-wrap: wrap;
+
+  .chart-title {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    margin: 0 auto;
+    grid-column: span 2;
+  }
+
+  .chart-column {
+    flex: 1;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    grid-auto-rows: max-content;
+    gap: 0.5em;
+  }
+  .spacer {
+    width: 100%;
+    height: 0.5em;
+  }
+}
+
+.total-map-hours {
+  height: 100%;
+  width: 100%;
+  padding: 1em;
+  max-height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: max-content max-content;
+
+  table {
+    width: auto;
+    width: 100%;
+    table-layout: fixed;
+  }
+  tr {
+    height: 20px;
+  }
+  &:not(.minimal) tr {
+    height: 24px;
+  }
+  td,
+  th {
+    padding: 2px 8px;
+  }
+
+  th:first-child,
+  td:first-child {
+    width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  th:last-child,
+  td:last-child {
+    width: 75px;
+  }
+
+  .pagination {
+    display: flex;
+    margin: 0 auto;
+    > * {
+      width: 25px;
+      display: grid;
+      place-items: center;
+      padding: 0.25em 0.5em;
+    }
+
+    button {
+      border-style: none;
+      border: 1px solid var(--input-border-color);
+      color: var(--color);
+      background-color: transparent;
+      &:hover {
+        background-color: #ffffff11;
+      }
+    }
+  }
+}
+
+.historical-player-count,
+.by-gamemode-chart {
+  height: 100%;
+  width: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  place-items: center;
+  gap: 0.5em;
+
+  .chart-title {
+    margin: 0;
+  }
+}
+.historical-player-count {
+  background-color: var(--background-color2);
+}
+
+.gamemode-tooltip-other {
+  margin-top: 0.5em;
+  display: grid;
+  gap: 0.25em 0.5em;
+  grid-template-columns: max-content 1fr;
+  grid-auto-rows: max-content;
+}

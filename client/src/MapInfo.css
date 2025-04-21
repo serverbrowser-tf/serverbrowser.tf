@@ -1,0 +1,23 @@
+.map-view {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 1em;
+  place-items: start center;
+
+  .title {
+    margin: 0;
+
+    > * {
+      text-decoration: none;
+      color: inherit;
+    }
+  }
+
+  .grid {
+    width: 800px;
+    max-height: 80vh;
+    overflow: auto;
+    height: max-content;
+  }
+}
