@@ -503,7 +503,7 @@ function App() {
         shouldSort: false,
         // includeScore: true,
         threshold: 0.3,
-        keys: ["name", "map", "keywords"],
+        keys: ["ip", "name", "map", "keywords"],
       });
       const searched = fuse.search(search);
       copy = searched.map((searchResult) => searchResult.item);
