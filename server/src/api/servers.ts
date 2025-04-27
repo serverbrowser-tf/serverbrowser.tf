@@ -64,10 +64,12 @@ async function pingServersForever() {
     updater.updateLastOnline(pingedServers.map((server) => server.ip));
     cleanupServerInfo(pingedServers);
     await updater.updateServers(pingedServers);
-    await updater.updateServerPlayers(pingedServers, now);
     if (lastRequestTime > 0) {
       const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
+      await updater.updateServerPlayers(pingedServers, diffInSeconds, now);
       await updater.updateServerMapHours(pingedServers, diffInSeconds, now);
+    } else {
+      await updater.updateServerPlayers(pingedServers, 0, now);
     }
     lastRequestTime = Number(now);
 
