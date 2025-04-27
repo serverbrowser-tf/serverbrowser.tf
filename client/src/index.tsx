@@ -18,8 +18,11 @@ import { ServerPage } from "./ServerPage.tsx";
 
 day.extend(localizedFormat);
 day.extend(utc);
-const dev = false;
-const Router = dev ? HashRouter : BrowserRouter;
+
+console.info(
+  "Fork me on github!",
+  "https://github.com/serverbrowser-tf/serverbrowser.tf",
+);
 
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement,
@@ -27,7 +30,7 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <Router>
+      <BrowserRouter>
         <nav>
           <Title />
           <Logout />
@@ -45,7 +48,7 @@ root.render(
           <Route path="/login" element={<Login />} />
           <Route path="/admin-view" element={<App />} />
         </Routes>
-      </Router>
+      </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,
 );
