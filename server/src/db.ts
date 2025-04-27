@@ -65,7 +65,7 @@ async function migrate(db: Database) {
     ).toString("utf8");
     db.run(file);
   }
-  db.run(`PRAGMA user_version = ${migrationFiles.length}`);
+  db.run(`PRAGMA user_version = ${Math.max(dbVersion, migrationFiles.length)}`);
 }
 
 export var db: Database = getDb();
