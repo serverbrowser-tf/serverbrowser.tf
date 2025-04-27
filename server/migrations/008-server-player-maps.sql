@@ -29,9 +29,3 @@ CREATE UNIQUE INDEX idx_server_players_unique ON server_players(server_id, times
 -- another solution is to keep a list of every time we query servers but i
 -- don't want to handle all that data on my teeny tiny 1gb 1core $6/month vps
 
-
-
-
-
-
-
