@@ -50,7 +50,9 @@ async function migrate(db: Database) {
   const { user_version: dbVersion } = db
     .prepare("PRAGMA user_version")
     .get() as { user_version: number };
-  const migrationFiles = await fs.readdir("./migrations");
+  const migrationFiles = (await fs.readdir("./migrations")).filter((el) =>
+    el.endsWith(".sql"),
+  );
 
   if (migrationFiles.length === dbVersion) {
     return;
@@ -229,7 +231,7 @@ INNER JOIN servers s ON s.id = sp.server_id
 WHERE s.ip IN {}
 AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
 AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
-GROUP BY sp.server_id, sp.timestamp,
+GROUP BY sp.server_id, sp.timestamp
 ORDER BY s.ip, sp.timestamp
 `;
       const playerCounts = db.prepare<
@@ -749,14 +751,14 @@ ON CONFLICT(ip) DO UPDATE SET
         });
 
       const queryStr = `
-INSERT INTO server_players (server_id, timestamp, map_id, player_count, player_hours, raw_hours)
+INSERT INTO server_players (server_id, map_id, timestamp, player_count, player_hours, raw_hours)
 VALUES {}
 ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
     player_count = MAX(server_players.player_count, excluded.player_count),
-    hours = server_map_hours.hours + excluded.hours,
-    raw_hours = server_map_hours.raw_hours + excluded.raw_hours;
+    player_hours = server_players.player_hours + excluded.player_hours,
+    raw_hours = server_players.raw_hours + excluded.raw_hours;
 `;
-      for (const chunked of chunk(values, CHUNKED)) {
+      for (const chunked of chunk(values, Math.floor(400 / 6))) {
         db.transaction(() => {
           const prepared = db.prepare(
             buildQueryBindings(queryStr, 6, chunked.length),

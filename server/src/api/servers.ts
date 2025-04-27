@@ -5,18 +5,11 @@ import { buildDataloaders, buildUpdaterService, db } from "../db";
 import { getAllServers, pingServers } from "../servers";
 import { cleanupServerInfo, isServerNormal } from "../servers/slopfilter";
 import { ServerInfo } from "../types";
-import {
-  assert,
-  asyncify,
-  CustomIterator,
-  isDev,
-  mapUpsert,
-  sleep,
-} from "../utils";
+import { assert, asyncify, isDev, mapUpsert, sleep } from "../utils";
 
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
 
-const multiplier = isDev ? 10 : 1;
+const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
 
 let id = Math.random().toString(36).substring(2);
 let lastRequestTime = -1;
@@ -37,7 +30,6 @@ let servers: Record<string, ServerInfo[]> = await (async () => {
   }
 })();
 let refreshPromise = Promise.withResolvers<void>();
-let serverIterator: CustomIterator<ServerInfo> | undefined;
 
 async function pingServersForever() {
   const dataloaders = buildDataloaders(db);
@@ -139,7 +131,7 @@ async function pingServersForever() {
     console.info("Got", pingedServers.length, "servers");
     console.timeEnd("Refreshing servers");
 
-    const timeToSleep = 1000 * 60 * 2.5 * multiplier;
+    const timeToSleep = 1000 * 60 * refreshPeriod;
     nextQueueTime = Date.now() + timeToSleep;
     refreshPromise = Promise.withResolvers();
     setInterval(refreshPromise.resolve, timeToSleep);
