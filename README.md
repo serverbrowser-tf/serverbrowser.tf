@@ -80,6 +80,16 @@ Just bun
 
 ---
 
+### Will you make a site for other source games?
+
+I've received requests for CSS before. I think that's a great idea but right
+now it's on the bottom of the priority list. Right now I'm just focused on
+making one really good site rather than a few mediocre ones. Should anyone want
+to beat me to the punch, all that it should take is to make the appid/gamedir
+configurable in `server/src/servers/index.ts`. You're free to do so
+
+---
+
 ### Can I use this to open up my own competing site and run you out of town?
 
 I never wanted the clout or responsibility. If you can make a better site, go
