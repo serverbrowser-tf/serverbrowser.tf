@@ -589,7 +589,6 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
       ) sa on sa.server_id = s.id
       WHERE date(s.last_online, "unixepoch") >= date('now', '-3 days')
       GROUP BY s.id
-      ORDER BY active_hours desc
       `;
 
       const query = db.query<
