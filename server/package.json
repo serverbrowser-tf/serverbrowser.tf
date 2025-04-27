@@ -1,5 +1,6 @@
 {
   "name": "serverbrowser",
+  "license": "0BSD",
   "module": "src/index.ts",
   "type": "module",
   "dependencies": {
