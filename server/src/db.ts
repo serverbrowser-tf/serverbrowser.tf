@@ -50,7 +50,9 @@ async function migrate(db: Database) {
   const { user_version: dbVersion } = db
     .prepare("PRAGMA user_version")
     .get() as { user_version: number };
-  const migrationFiles = await fs.readdir("./migrations");
+  const migrationFiles = (await fs.readdir("./migrations")).filter((el) =>
+    el.endsWith(".sql"),
+  );
 
   if (migrationFiles.length === dbVersion) {
     return;
@@ -63,7 +65,7 @@ async function migrate(db: Database) {
     ).toString("utf8");
     db.run(file);
   }
-  db.run(`PRAGMA user_version = ${migrationFiles.length}`);
+  db.run(`PRAGMA user_version = ${Math.max(dbVersion, migrationFiles.length)}`);
 }
 
 export var db: Database = getDb();
@@ -222,13 +224,14 @@ SELECT map, id FROM maps WHERE map in {}
     async function queryServerDetails(ips) {
       const playerCountQueryStr = `
 SELECT s.ip, 
-       sp.player_count,
+       MAX(sp.player_count) player_count,
        sp.timestamp
-FROM servers s
-JOIN server_players sp ON s.id = sp.server_id
+FROM server_players sp
+INNER JOIN servers s ON s.id = sp.server_id
 WHERE s.ip IN {}
 AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
 AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+GROUP BY sp.server_id, sp.timestamp
 ORDER BY s.ip, sp.timestamp
 `;
       const playerCounts = db.prepare<
@@ -575,13 +578,18 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
              s.maxPlayers,
              m.map,
              bl.reason,
-             (COUNT(CASE WHEN sp.player_count > 10 THEN 1 ELSE NULL END) * 0.5) as active_hours
+             sa.active_hours
       FROM servers s
       LEFT JOIN maps m ON m.id = s.map_id
       LEFT JOIN blacklist bl ON bl.server_id = s.id
-      LEFT JOIN server_players sp on sp.server_id = s.id
+      LEFT JOIN (
+        SELECT sp.server_id, (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
+        FROM server_players sp
+        WHERE sp.player_count >= 10
+        AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+        GROUP BY sp.server_id
+      ) sa on sa.server_id = s.id
       WHERE date(s.last_online, "unixepoch") >= date('now', '-3 days')
-      AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
       GROUP BY s.id
       `;
 
@@ -711,37 +719,49 @@ ON CONFLICT(ip) DO UPDATE SET
         })();
       }
     },
-    async updateServerPlayers(servers: HydratedServerInfo[], queryTime: Date) {
-      const serverIds = await dataloaders.serverId.loadMany(
-        servers.map((server) => server.ip),
-      );
+    async updateServerPlayers(
+      servers: HydratedServerInfo[],
+      seconds: number,
+      queryTime: Date,
+    ) {
+      upsertMaps(servers.map((server) => server.map));
+      const [serverIds, mapIds] = await Promise.all([
+        dataloaders.serverId.loadMany(servers.map((server) => server.ip)),
+        dataloaders.mapId.loadMany(servers.map((server) => server.map)),
+      ]);
 
+      const hours = seconds / 60 / 60;
       let normalizedTime = Math.floor(Number(queryTime) / 1000);
       normalizedTime -= normalizedTime % (60 * 30);
-      const values = serverIds
-        .filter((id): id is number => {
+      const values = servers
+        .map((server, i) => [
+          serverIds[i],
+          mapIds[i],
+          normalizedTime,
+          servers[i].players - servers[i].bots,
+          hours * (server.players - server.bots),
+          hours,
+        ])
+        .filter((id): id is number[] => {
           if (id instanceof Error) {
             console.error("updateServerPlayers", id);
             return false;
           }
           return true;
-        })
-        .map((id, i) => [
-          id,
-          servers[i].players - servers[i].bots,
-          normalizedTime,
-        ]);
+        });
 
       const queryStr = `
-INSERT INTO server_players (server_id, player_count, timestamp)
+INSERT INTO server_players (server_id, map_id, timestamp, player_count, player_hours, raw_hours)
 VALUES {}
-ON CONFLICT(server_id, timestamp) DO UPDATE SET
-    player_count = MAX(server_players.player_count, excluded.player_count);
+ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
+    player_count = MAX(server_players.player_count, excluded.player_count),
+    player_hours = server_players.player_hours + excluded.player_hours,
+    raw_hours = server_players.raw_hours + excluded.raw_hours;
 `;
-      for (const chunked of chunk(values, CHUNKED)) {
+      for (const chunked of chunk(values, Math.floor(400 / 6))) {
         db.transaction(() => {
           const prepared = db.prepare(
-            buildQueryBindings(queryStr, 3, chunked.length),
+            buildQueryBindings(queryStr, 6, chunked.length),
           );
           prepared.run(...chunked.flat());
           resetSequenceId(db, "server_players");

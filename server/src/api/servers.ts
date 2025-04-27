@@ -5,18 +5,11 @@ import { buildDataloaders, buildUpdaterService, db } from "../db";
 import { getAllServers, pingServers } from "../servers";
 import { cleanupServerInfo, isServerNormal } from "../servers/slopfilter";
 import { ServerInfo } from "../types";
-import {
-  assert,
-  asyncify,
-  CustomIterator,
-  isDev,
-  mapUpsert,
-  sleep,
-} from "../utils";
+import { assert, asyncify, isDev, mapUpsert, sleep } from "../utils";
 
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
 
-const multiplier = isDev ? 10 : 1;
+const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
 
 let id = Math.random().toString(36).substring(2);
 let lastRequestTime = -1;
@@ -37,7 +30,6 @@ let servers: Record<string, ServerInfo[]> = await (async () => {
   }
 })();
 let refreshPromise = Promise.withResolvers<void>();
-let serverIterator: CustomIterator<ServerInfo> | undefined;
 
 async function pingServersForever() {
   const dataloaders = buildDataloaders(db);
@@ -64,10 +56,12 @@ async function pingServersForever() {
     updater.updateLastOnline(pingedServers.map((server) => server.ip));
     cleanupServerInfo(pingedServers);
     await updater.updateServers(pingedServers);
-    await updater.updateServerPlayers(pingedServers, now);
     if (lastRequestTime > 0) {
       const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
+      await updater.updateServerPlayers(pingedServers, diffInSeconds, now);
       await updater.updateServerMapHours(pingedServers, diffInSeconds, now);
+    } else {
+      await updater.updateServerPlayers(pingedServers, 0, now);
     }
     lastRequestTime = Number(now);
 
@@ -137,7 +131,7 @@ async function pingServersForever() {
     console.info("Got", pingedServers.length, "servers");
     console.timeEnd("Refreshing servers");
 
-    const timeToSleep = 1000 * 60 * 2.5 * multiplier;
+    const timeToSleep = 1000 * 60 * refreshPeriod;
     nextQueueTime = Date.now() + timeToSleep;
     refreshPromise = Promise.withResolvers();
     setInterval(refreshPromise.resolve, timeToSleep);
