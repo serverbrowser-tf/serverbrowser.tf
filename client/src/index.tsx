@@ -4,7 +4,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, HashRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Route, Routes } from "react-router";
 import { Login } from "./Login.tsx";
 import day from "dayjs";
 import localizedFormat from "dayjs/plugin/localizedFormat.js";
@@ -18,8 +18,11 @@ import { ServerPage } from "./ServerPage.tsx";
 
 day.extend(localizedFormat);
 day.extend(utc);
-const dev = false;
-const Router = dev ? HashRouter : BrowserRouter;
+
+console.info(
+  "Fork me on github!",
+  "https://github.com/serverbrowser-tf/serverbrowser.tf",
+);
 
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement,
@@ -27,7 +30,7 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <Router>
+      <BrowserRouter>
         <nav>
           <Title />
           <Logout />
@@ -45,7 +48,7 @@ root.render(
           <Route path="/login" element={<Login />} />
           <Route path="/admin-view" element={<App />} />
         </Routes>
-      </Router>
+      </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,
 );
