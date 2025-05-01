@@ -15,21 +15,20 @@
     height: 100%;
   }
   .expander {
-      background-color: transparent;
-      border: 0;
-      color: var(--color);
+    background-color: transparent;
+    border: 0;
+    color: var(--color);
   }
 
   .grid .server-cell {
-      display: grid;
-      grid-template-columns: 32px repeat(2, max-content);
-      place-items: center;
+    display: grid;
+    grid-template-columns: 32px repeat(2, max-content);
+    place-items: center;
   }
 
   .grid .detail-row {
-      background-color: var(--rdg-background-color);
+    background-color: var(--rdg-background-color);
   }
-
 
   .fill-grid {
     height: 100%;
@@ -78,9 +77,14 @@
     gap: 8px;
   }
 
+  .settings input[type="number"],
   .settings input[type="text"],
   .settings select {
     width: 200px;
+
+    &.minimal {
+      width: 100px;
+    }
   }
 
   .settings > * {

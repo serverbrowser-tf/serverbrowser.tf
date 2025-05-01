@@ -252,7 +252,7 @@ apiRouter.post(
       }
       servers.delete(ip);
     }
-    if (activeServer) {
+    if (activeServer && reason !== "") {
       mapUpsert(allServersByBlacklist, reason, {
         insert() {
           return new Map([[ip, activeServer]]);

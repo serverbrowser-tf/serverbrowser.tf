@@ -25,6 +25,7 @@ const filterList = [
   /prop.?hunt/,
   "randomizer",
   /mario ?kart/,
+  /facti13/i,
 ];
 const mapList = [
   "achievement_",

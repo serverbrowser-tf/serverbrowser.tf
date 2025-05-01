@@ -20,11 +20,16 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
     if (["achievement", "trade", "idle"].includes(prefix)) {
       return "social";
     }
-    if (prefix === "mge" || name.includes("soapdm") || prefix === 'dm' || name.includes("duel")) {
+    if (
+      prefix === "mge" ||
+      name.includes("soapdm") ||
+      prefix === "dm" ||
+      name.includes("duel")
+    ) {
       return "dm";
     }
-    if (prefix === 'mvm') {
-      return 'mvm'
+    if (prefix === "mvm") {
+      return "mvm";
     }
     if (
       map.startsWith("z") ||
@@ -59,8 +64,8 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
     ) {
       return "24/7";
     }
-    if (prefix === 'tr') {
-      return 'other';
+    if (prefix === "tr") {
+      return "other";
     }
     if (["jump", "rj", "kz", "bhop", "surf"].includes(prefix)) {
       return "jump/surf";
@@ -106,23 +111,20 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
             event.preventDefault();
             const formData = new FormData(event.currentTarget);
             const reason = formData.get("reason");
-            if (reason) {
-              try {
-                await api("/api/ban", {
-                  method: "POST",
-                  body: { ip: serverToBan.ip, reason },
-                });
-                banAtom.value = undefined;
-              } catch (e) {
-                if (e instanceof Error) {
-                  setError(e.message);
-                } else {
-                  console.error(e);
-                }
+            try {
+              await api("/api/ban", {
+                method: "POST",
+                body: { ip: serverToBan.ip, reason },
+              });
+              banAtom.value = undefined;
+            } catch (e) {
+              if (e instanceof Error) {
+                setError(e.message);
+              } else {
+                console.error(e);
               }
-              return;
             }
-            setError("Enter a reason retard");
+            return;
           }}
         >
           <label>
