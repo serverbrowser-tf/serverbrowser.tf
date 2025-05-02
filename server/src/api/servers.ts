@@ -244,7 +244,11 @@ apiRouter.post(
     const ip: string = req.body.ip;
     const reason: string = req.body.reason;
     const updater = buildUpdaterService(db);
-    await updater.updateBlacklist(ip, reason);
+    if (reason) {
+      await updater.updateBlacklist(ip, reason);
+    } else {
+      await updater.deleteServerFromBlacklist(ip);
+    }
     let activeServer: ServerInfo | undefined;
     for (const servers of allServersByBlacklist.values()) {
       if (servers.has(ip)) {
@@ -252,7 +256,7 @@ apiRouter.post(
       }
       servers.delete(ip);
     }
-    if (activeServer) {
+    if (activeServer && reason !== "") {
       mapUpsert(allServersByBlacklist, reason, {
         insert() {
           return new Map([[ip, activeServer]]);

@@ -302,6 +302,10 @@ function App() {
   );
   const [vanillaMaps, setVanillaMaps] = useLocalStorage("vanilla-maps", false);
   const [customMaps, setCustomMaps] = useLocalStorage("custom-maps", false);
+  const [maxPlayerCount, setMaxPlayerCount] = useLocalStorage<null | number>(
+    "max-player-count",
+    null,
+  );
   const [notFull, setNotFull] = useLocalStorage("not-full", false);
   const [map, setMap] = useState("");
   const [mustIncludeTagsRaw, setMustIncludeTags] = useLocalStorage(
@@ -498,6 +502,11 @@ function App() {
         return actualPlayers < server.maxPlayers;
       });
     }
+    if (maxPlayerCount != null) {
+      copy = copy.filter((server) => {
+        return server.maxPlayers <= maxPlayerCount;
+      });
+    }
     if (search) {
       const fuse = new Fuse(copy, {
         shouldSort: false,
@@ -543,6 +552,7 @@ function App() {
     }
     return copy;
   }, [
+    maxPlayerCount,
     tabOpen,
     data,
     map,
@@ -873,6 +883,21 @@ function App() {
                 <option value="North America">North America</option>
                 <option value="South America">South America</option>
               </select>
+            </label>
+            <label>
+              Max player count
+              <input
+                type="number"
+                className="minimal"
+                value={maxPlayerCount ?? ""}
+                onChange={(e) => {
+                  if (e.target.value === "") {
+                    setMaxPlayerCount(null);
+                  } else {
+                    setMaxPlayerCount(e.target.valueAsNumber);
+                  }
+                }}
+              />
             </label>
           </div>
           <div className="settings-column">

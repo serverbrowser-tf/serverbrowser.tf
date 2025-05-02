@@ -834,6 +834,15 @@ ON CONFLICT(server_id) DO UPDATE SET
       const blacklist = db.query(queryStr);
       blacklist.run(serverId, reason);
     },
+    async deleteServerFromBlacklist(ip: string) {
+      const queryStr = `DELETE FROM blacklist WHERE server_id = ?`;
+
+      try {
+        const serverId = await dataloaders.serverId.load(ip);
+        const query = await db.query(queryStr);
+        query.run(serverId);
+      } catch {}
+    },
     updateLastOnline(ips: string[]) {
       const queryStr = `
 UPDATE servers 
