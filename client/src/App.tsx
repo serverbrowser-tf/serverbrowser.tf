@@ -288,6 +288,17 @@ function rowKeyGetter(data: RowData) {
   return `detail_${data.row.ip}`;
 }
 
+const GAMEMODES = [
+  "Arena",
+  "Capture the Flag",
+  "Control Points",
+  "King of the Hill",
+  "Payload",
+  "Player/Robot Destruction",
+  "Special Delivery",
+  "Other",
+] as const;
+
 function App() {
   const [category, setCategory] = useLocalStorage("category", "vanilla");
   const [latency, setLatency] = useLocalStorage("latency", "");
@@ -316,6 +327,9 @@ function App() {
     "must-not-include-tags",
     "",
   );
+  const [gamemodeFilters, setGamemodeFilters] = useLocalStorage<
+    Partial<Record<(typeof GAMEMODES)[number], boolean>>
+  >("gamemode-prefixes", {});
   const mustIncludeTags = useDeferredValue(mustIncludeTagsRaw);
   const mustNotIncludeTags = useDeferredValue(mustNotIncludeTagsRaw);
   const [sortColumns, setSortColumns] = useLocalStorage<readonly SortColumn[]>(
@@ -949,6 +963,29 @@ function App() {
               Custom Maps
             </label>
           </div>
+          {/*
+          <div className="settings-column">
+            <fieldset>
+              <legend>Maps</legend>
+              {GAMEMODES.map((gamemode) => (
+                <label key={gamemode}>
+                  <input
+                    type="checkbox"
+                    name={`map-prefix-${gamemode}`}
+                    checked={gamemodeFilters[gamemode] ?? true}
+                    onChange={(e) => {
+                      setGamemodeFilters((old) => ({
+                        ...old,
+                        [gamemode]: e.target.checked,
+                      }));
+                    }}
+                  />
+                  {gamemode}
+                </label>
+              ))}
+            </fieldset>
+          </div>
+             */}
           <div className="settings-column">
             <fieldset>
               <legend>Alltalk</legend>
