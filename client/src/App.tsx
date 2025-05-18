@@ -24,6 +24,7 @@ import {
   getPingScore,
   getPlayerScore,
   lerp,
+  publicCategories,
   useGeoIp,
 } from "./utils.ts";
 import { REGIONS, ServerInfo } from "./types.ts";
@@ -87,7 +88,7 @@ const cols: Column<RowData>[] = [
     },
     renderCell(thing) {
       if (thing.row.type === "DETAIL") {
-        return <ServerDetail ip={thing.row.row.ip} minimal />;
+        return <ServerDetail ip={thing.row.row.ip} />;
       }
       return (
         <>
@@ -614,6 +615,18 @@ function App() {
         }
       }
     }
+    if (category === "all" || category === "__filtered") {
+      copy.push({
+        key: "category",
+        name: "Category",
+        renderCell(props) {
+          if (props.row.type === "MASTER" && props.row.category) {
+            return <>{publicCategories[props.row.category]}</>;
+          }
+          return "";
+        },
+      });
+    }
     if (isLoggedIn) {
       copy.push(...adminColumns);
 
@@ -692,6 +705,14 @@ function App() {
       },
     ];
 
+    if (loggedInAtom.value) {
+      options.unshift({
+        label: "Ban",
+        onClick: () => {
+          banAtom.value = row;
+        },
+      });
+    }
     if (tabOpen !== "blacklist") {
       if (favorites.includes(row.ip)) {
         options.push({
@@ -833,14 +854,13 @@ function App() {
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
-                <option value="vanilla">Vanilla</option>
-                <option value="24/7">24/7 Server</option>
-                <option value="comp">Comp</option>
-                <option value="dm">DM</option>
-                <option value="gamemode">Gamemode</option>
-                <option value="jump/surf">Jump/Surf</option>
-                <option value="mvm">MVM</option>
-                <option value="social">Social</option>
+                <option value="all">All</option>
+                {Object.entries(publicCategories).map(([key, value]) => (
+                  <option value={key}>{value}</option>
+                ))}
+                {loggedInAtom.value && (
+                  <option value="__filtered">Filtered</option>
+                )}
               </select>
             </label>
 

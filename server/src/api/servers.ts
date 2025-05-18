@@ -3,11 +3,16 @@ import fs from "fs/promises";
 
 import { buildDataloaders, buildUpdaterService, db } from "../db";
 import { getAllServers, pingServers } from "../servers";
-import { cleanupServerInfo, isServerNormal } from "../servers/slopfilter";
+import {
+  cleanupServerInfo,
+  isServerNormal,
+  isServerSuperNormal,
+} from "../servers/slopfilter";
 import { ServerInfo } from "../types";
 import { assert, asyncify, isDev, mapUpsert, sleep } from "../utils";
 
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
+import { omit } from "lodash";
 
 const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
 
@@ -117,12 +122,28 @@ async function pingServersForever() {
           return true;
         })
         .map(([key, value]) => {
-          return [key, [...value.values()]];
+          const thisServers = [...value.values()];
+          for (const server of thisServers) {
+            server.category = key ?? undefined;
+          }
+          return [key, thisServers];
         }),
     );
+    const vanillaServers = servers.vanilla ?? [];
+    servers.__filtered = [];
+    servers.vanilla = [];
+    for (const server of vanillaServers) {
+      if (isServerSuperNormal(server)) {
+        servers.vanilla.push(server);
+      } else {
+        servers.__filtered.push(server);
+      }
+    }
     for (const server of notFiltered) {
       if (isServerNormal(server)) {
         servers.vanilla.push(server);
+      } else {
+        servers.__filtered.push(server);
       }
     }
 
@@ -177,7 +198,12 @@ function getOnlineServers(req: Request, res: Response) {
   const category = req.query.category;
   const hasUsersPlaying = Number(req.query.hasUsersPlaying ?? "1");
 
-  let copy = servers[String(category ?? "vanilla")];
+  let copy: ServerInfo[];
+  if (category === "all") {
+    copy = Object.values(omit(servers, "fake players")).flat();
+  } else {
+    copy = servers[String(category ?? "vanilla")];
+  }
   if (hasUsersPlaying) {
     copy = copy.filter((server) => {
       const players = (server.players ?? 0) - (server.bots ?? 0);

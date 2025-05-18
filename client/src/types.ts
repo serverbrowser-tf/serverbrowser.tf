@@ -1,3 +1,5 @@
+import type { publicCategories } from "./utils";
+
 export enum REGIONS {
   "US East" = 0,
   "US West" = 1,
@@ -23,6 +25,7 @@ interface HydratedServerInfo {
   region: number;
   geoip: [number, number] | null;
   active_hours?: number;
+  category?: keyof typeof publicCategories;
 }
 
 interface UnhydratedServerInfo {
@@ -39,7 +42,7 @@ interface UnhydratedServerInfo {
   region: number;
   geoip: [number, number] | null;
   active_hours?: number;
+  category?: keyof typeof publicCategories;
 }
 
 export type ServerInfo = HydratedServerInfo | UnhydratedServerInfo;
-
