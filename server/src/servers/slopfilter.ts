@@ -124,7 +124,6 @@ function serverPassesFilters(
 ) {
   for (const mapPrefix of mapList) {
     if (server.map?.toLowerCase().startsWith(mapPrefix)) {
-      if (server.name?.includes("TDM")) console.trace(server, mapPrefix);
       return false;
     }
   }
@@ -132,18 +131,14 @@ function serverPassesFilters(
   for (const filterStr of filterList) {
     if (typeof filterStr === "string") {
       if (server.name.toLowerCase().includes(filterStr)) {
-        if (server.name?.includes("TDM")) console.trace(server, filterStr);
         return false;
       } else if (server.keywords?.toLowerCase().includes(filterStr)) {
-        if (server.name?.includes("TDM")) console.trace(server, filterStr);
         return false;
       }
     } else {
       if (filterStr.test(server.name.toLowerCase())) {
-        if (server.name?.includes("TDM")) console.trace(server, filterStr);
         return false;
       } else if (filterStr.test(server.keywords?.toLowerCase() ?? "")) {
-        if (server.name?.includes("TDM")) console.trace(server, filterStr);
         return false;
       }
     }
