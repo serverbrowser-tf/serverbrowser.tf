@@ -347,6 +347,8 @@ apiRouter.get(
   }),
 );
 
+// NOTE: delete after a while lol
+// @deprecated
 apiRouter.get(
   "/api/server-details/:ip",
   cacheMiddleware,
@@ -382,6 +384,8 @@ apiRouter.get(
   }),
 );
 
+// NOTE: delete after a while lol
+// @deprecated
 apiRouter.get(
   "/api/server-details-p2/:ip",
   cacheMiddleware,
@@ -393,6 +397,43 @@ apiRouter.get(
     res.endTime("serverMapHours");
 
     res.json({ serverMapHours });
+  }),
+);
+
+apiRouter.get(
+  "/api/server-details-v2/:ip",
+  cacheMiddleware,
+  asyncify(async (req, res) => {
+    const dataloaders = buildDataloaders(db);
+
+    const name = allServersByIp.get(req.params.ip)?.name ?? "";
+
+    if (isLoggedIn(req)) {
+      res.startTime("maps", "");
+      const maps = await dataloaders.mapHours.load(req.params.ip);
+      res.endTime("maps");
+      res.startTime("playerCounts", "");
+      const playerCounts = await dataloaders.playerCountWithMaps.load(
+        req.params.ip,
+      );
+      res.endTime("playerCounts");
+
+      res.json({
+        name,
+        maps: Object.fromEntries(maps.slice(0, 100)),
+        playerCounts,
+      });
+    } else {
+      const [maps, playerCounts] = await Promise.all([
+        dataloaders.mapHours.load(req.params.ip),
+        dataloaders.playerCountWithMaps.load(req.params.ip),
+      ]);
+      res.json({
+        name,
+        maps: Object.fromEntries(maps.slice(0, 100)),
+        playerCounts,
+      });
+    }
   }),
 );
 

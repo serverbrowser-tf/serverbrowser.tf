@@ -223,7 +223,7 @@ SELECT map, id FROM maps WHERE map in {}
   const playerCount = new DataLoader<string, PlayerCountResult>(
     async function queryServerDetails(ips) {
       const playerCountQueryStr = `
-SELECT s.ip, 
+SELECT s.ip,
        MAX(sp.player_count) player_count,
        sp.timestamp
 FROM server_players sp
@@ -247,6 +247,46 @@ ORDER BY s.ip, sp.timestamp
           player_count: playerCount.player_count,
           timestamp: playerCount.timestamp,
         });
+      }
+
+      return Object.values(result);
+    },
+    {
+      cacheMap: new QuickLRU({ maxSize: 100, maxAge: CACHE_MAX_AGE }),
+    },
+  );
+
+  type PlayerCountWithMapsResult = Array<{
+    player_count: number;
+    map: string;
+    timestamp: number;
+  }>;
+  const playerCountWithMaps = new DataLoader<string, PlayerCountResult>(
+    async function queryServerDetails(ips) {
+      const playerCountQueryStr = `
+SELECT s.ip,
+       sp.player_count,
+       m.map,
+       sp.timestamp
+FROM server_players sp
+INNER JOIN servers s ON s.id = sp.server_id
+INNER JOIN maps m on sp.map_id = m.id
+WHERE s.ip IN {}
+AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
+AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+ORDER BY s.ip, sp.timestamp
+`;
+      const playerCounts = db.prepare<
+        PlayerCountWithMapsResult[number] & { ip: string },
+        string[]
+      >(buildQueryBindings(playerCountQueryStr, ips.length, 1));
+
+      const result: Record<string, PlayerCountResult> = Object.fromEntries(
+        ips.map((ip) => [ip, []]),
+      );
+      for (const playerCount of playerCounts.iterate(...ips)) {
+        const { ip, ...rest } = playerCount;
+        result[ip].push(rest);
       }
 
       return Object.values(result);
@@ -497,6 +537,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     mapId,
     mapHours,
     playerCount,
+    playerCountWithMaps,
     serverMapHours,
     firstRecordedDate,
     servers,
