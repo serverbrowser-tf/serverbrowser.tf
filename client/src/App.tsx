@@ -64,6 +64,8 @@ interface DetailRowData {
 
 type RowData = MasterRowData | DetailRowData;
 
+let actualColumns: Column<RowData>[] = [];
+
 const cols: Column<RowData>[] = [
   {
     key: "ip",
@@ -78,11 +80,7 @@ const cols: Column<RowData>[] = [
     },
     colSpan(args) {
       if (args.type === "ROW" && args.row.type === "DETAIL") {
-        let length = cols.length;
-        if (loggedInAtom.value) {
-          length += adminColumns.length;
-        }
-        return length;
+        return actualColumns.length;
       }
       return undefined;
     },
@@ -329,6 +327,9 @@ function App() {
     y: number;
     row: MasterRowData;
   }>();
+  const [columnWidths, setColumnWidths] = useState(
+    () => new Map<string, number>(),
+  );
   const tabOpen = useAtom(currentTabAtom);
   const search = useAtom(currentSearch);
   const isLoggedIn = useAtom(loggedInAtom);
@@ -588,12 +589,28 @@ function App() {
     return copy;
   }, [sortedRows, expandedRows]);
 
-  const actualCols = useMemo(() => {
+  actualColumns = useMemo(() => {
     const copy = [...cols];
     copy[0] = {
       ...copy[0],
       name: `Servers (${sortedRows.length})`,
     };
+    if (category === "all" || category === "__filtered") {
+      const index = copy.findIndex((value) => value.key === "region");
+      // should always pass
+      assert(index >= 0, "Someone messed up the column defs...");
+      copy.splice(index, 0, {
+        key: "category",
+        name: "Category",
+        width: 100,
+        renderCell(props) {
+          if (props.row.type === "MASTER" && props.row.category) {
+            return <>{publicCategories[props.row.category] ?? ""}</>;
+          }
+          return "";
+        },
+      });
+    }
     if (geoIp) {
       for (let i = 0; i < copy.length; i++) {
         if (copy[i].key === "region") {
@@ -614,18 +631,6 @@ function App() {
           };
         }
       }
-    }
-    if (category === "all" || category === "__filtered") {
-      copy.push({
-        key: "category",
-        name: "Category",
-        renderCell(props) {
-          if (props.row.type === "MASTER" && props.row.category) {
-            return <>{publicCategories[props.row.category]}</>;
-          }
-          return "";
-        },
-      });
     }
     if (isLoggedIn) {
       copy.push(...adminColumns);
@@ -779,8 +784,12 @@ function App() {
       <TabsHeader />
       <div className="grid">
         <DataGrid
+          // TODO new version of react-data-grid supports column widths. the
+          // new version isn't out yet however. fix this the right way when it
+          // comes out
+          key={actualColumns.length}
           className="fill-grid"
-          columns={actualCols}
+          columns={actualColumns}
           rowHeight={(row) => (row.type === "MASTER" ? 32 : 300)}
           rows={rowData}
           sortColumns={sortColumns}

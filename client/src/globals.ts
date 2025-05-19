@@ -43,9 +43,9 @@ export const useAtom = <T>(atom: Atom<T>) => {
   return state;
 };
 
-export function assert(x: any): asserts x {
-  if (x === false) {
-    throw new Error("Assertion Error");
+export function assert(x: any, msg?: string): asserts x {
+  if (!x) {
+    throw new Error(msg ? `Assertion Error: "${msg}"` : "Assertion Error");
   }
 }
 
