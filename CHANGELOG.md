@@ -1,11 +1,16 @@
 # Changelog
 
+## 2025-05-18
+
+* Added "All" category filter to find all the servers
+* Added extra layer of filters for whitelisted "vanilla" servers
+* Added some better moderation tools to detect when a server categorized as vanilla isn't
+
 ## 2025-05-01
 
 * Added max player count filter
 * Added github advertisement in console
 * Added way for admins to remove categories from servers
-
 
 ## 2025-04-27
 
