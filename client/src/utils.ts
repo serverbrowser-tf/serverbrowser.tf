@@ -276,3 +276,15 @@ export function useElementSize(ref: MutableRefObject<HTMLElement>): Dimensions {
 
   return dimensions;
 }
+
+export const publicCategories = {
+  vanilla: "Vanilla",
+  "24/7": "24/7",
+  comp: "Comp",
+  dm: "DM",
+  gamemode: "Gamemode",
+  "jump/surf": "Jump/Surf",
+  mvm: "MVM",
+  social: "Social",
+  other: "Other",
+};

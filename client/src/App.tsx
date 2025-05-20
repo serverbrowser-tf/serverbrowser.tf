@@ -24,6 +24,7 @@ import {
   getPingScore,
   getPlayerScore,
   lerp,
+  publicCategories,
   useGeoIp,
 } from "./utils.ts";
 import { REGIONS, ServerInfo } from "./types.ts";
@@ -63,6 +64,8 @@ interface DetailRowData {
 
 type RowData = MasterRowData | DetailRowData;
 
+let actualColumns: Column<RowData>[] = [];
+
 const cols: Column<RowData>[] = [
   {
     key: "ip",
@@ -77,17 +80,13 @@ const cols: Column<RowData>[] = [
     },
     colSpan(args) {
       if (args.type === "ROW" && args.row.type === "DETAIL") {
-        let length = cols.length;
-        if (loggedInAtom.value) {
-          length += adminColumns.length;
-        }
-        return length;
+        return actualColumns.length;
       }
       return undefined;
     },
     renderCell(thing) {
       if (thing.row.type === "DETAIL") {
-        return <ServerDetail ip={thing.row.row.ip} minimal />;
+        return <ServerDetail ip={thing.row.row.ip} />;
       }
       return (
         <>
@@ -328,6 +327,9 @@ function App() {
     y: number;
     row: MasterRowData;
   }>();
+  const [columnWidths, setColumnWidths] = useState(
+    () => new Map<string, number>(),
+  );
   const tabOpen = useAtom(currentTabAtom);
   const search = useAtom(currentSearch);
   const isLoggedIn = useAtom(loggedInAtom);
@@ -587,12 +589,28 @@ function App() {
     return copy;
   }, [sortedRows, expandedRows]);
 
-  const actualCols = useMemo(() => {
+  actualColumns = useMemo(() => {
     const copy = [...cols];
     copy[0] = {
       ...copy[0],
       name: `Servers (${sortedRows.length})`,
     };
+    if (category === "all" || category === "__filtered") {
+      const index = copy.findIndex((value) => value.key === "region");
+      // should always pass
+      assert(index >= 0, "Someone messed up the column defs...");
+      copy.splice(index, 0, {
+        key: "category",
+        name: "Category",
+        width: 100,
+        renderCell(props) {
+          if (props.row.type === "MASTER" && props.row.category) {
+            return <>{publicCategories[props.row.category] ?? ""}</>;
+          }
+          return "";
+        },
+      });
+    }
     if (geoIp) {
       for (let i = 0; i < copy.length; i++) {
         if (copy[i].key === "region") {
@@ -692,6 +710,14 @@ function App() {
       },
     ];
 
+    if (loggedInAtom.value) {
+      options.unshift({
+        label: "Ban",
+        onClick: () => {
+          banAtom.value = row;
+        },
+      });
+    }
     if (tabOpen !== "blacklist") {
       if (favorites.includes(row.ip)) {
         options.push({
@@ -758,8 +784,12 @@ function App() {
       <TabsHeader />
       <div className="grid">
         <DataGrid
+          // TODO new version of react-data-grid supports column widths. the
+          // new version isn't out yet however. fix this the right way when it
+          // comes out
+          key={actualColumns.length}
           className="fill-grid"
-          columns={actualCols}
+          columns={actualColumns}
           rowHeight={(row) => (row.type === "MASTER" ? 32 : 300)}
           rows={rowData}
           sortColumns={sortColumns}
@@ -833,14 +863,13 @@ function App() {
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
-                <option value="vanilla">Vanilla</option>
-                <option value="24/7">24/7 Server</option>
-                <option value="comp">Comp</option>
-                <option value="dm">DM</option>
-                <option value="gamemode">Gamemode</option>
-                <option value="jump/surf">Jump/Surf</option>
-                <option value="mvm">MVM</option>
-                <option value="social">Social</option>
+                <option value="all">All</option>
+                {Object.entries(publicCategories).map(([key, value]) => (
+                  <option value={key}>{value}</option>
+                ))}
+                {loggedInAtom.value && (
+                  <option value="__filtered">Filtered</option>
+                )}
               </select>
             </label>
 

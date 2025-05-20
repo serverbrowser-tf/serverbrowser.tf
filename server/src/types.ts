@@ -5,7 +5,7 @@ export interface UnhydratedServerInfo {
   server: string;
   name: string;
   map?: string;
-  keywords?: string
+  keywords?: string;
   players?: number;
   maxPlayers?: number;
   hours?: number;
@@ -13,6 +13,7 @@ export interface UnhydratedServerInfo {
   visibility?: 0 | 1;
   regions: REGIONS;
   region: REGIONS;
+  category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
 }
@@ -22,16 +23,16 @@ export interface HydratedServerInfo {
   server: string;
   name: string;
   map: string;
-  keywords?: string
+  keywords?: string;
   players: number;
   maxPlayers: number;
   bots: number;
   visibility: number;
   regions: REGIONS;
   region: REGIONS;
+  category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
-};
+}
 
 export type ServerInfo = UnhydratedServerInfo | HydratedServerInfo;
-
