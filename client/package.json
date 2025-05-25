@@ -13,6 +13,7 @@
     "cra-template-typescript": "1.2.0",
     "dayjs": "^1.11.13",
     "fuse.js": "^7.1.0",
+    "lodash": "^4.17.21",
     "normalize.css": "^8.0.1",
     "react": "^19.1.0",
     "react-data-grid": "v7.0.0-beta.51",
@@ -25,6 +26,7 @@
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "@types/bun": "latest",
     "@types/color": "^4.2.0",
+    "@types/lodash": "^4.17.17",
     "prettier": "^3.5.3",
     "react-scripts": "5.0.1"
   },

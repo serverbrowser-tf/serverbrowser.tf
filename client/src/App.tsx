@@ -327,9 +327,6 @@ function App() {
     y: number;
     row: MasterRowData;
   }>();
-  const [columnWidths, setColumnWidths] = useState(
-    () => new Map<string, number>(),
-  );
   const tabOpen = useAtom(currentTabAtom);
   const search = useAtom(currentSearch);
   const isLoggedIn = useAtom(loggedInAtom);
@@ -643,7 +640,7 @@ function App() {
       }
     }
     return copy;
-  }, [sortedRows.length, isLoggedIn, tabOpen, geoIp]);
+  }, [sortedRows.length, isLoggedIn, tabOpen, category, geoIp]);
 
   const setSpecificTag = (
     dispatch: Dispatch<SetStateAction<string>>,

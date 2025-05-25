@@ -373,6 +373,8 @@ apiRouter.get(
   }),
 );
 
+// delete after a while lol
+// @deprecated
 apiRouter.get(
   "/api/server-details/:ip",
   cacheMiddleware,
@@ -408,6 +410,8 @@ apiRouter.get(
   }),
 );
 
+// delete after a while lol
+// @deprecated
 apiRouter.get(
   "/api/server-details-p2/:ip",
   cacheMiddleware,
@@ -419,6 +423,25 @@ apiRouter.get(
     res.endTime("serverMapHours");
 
     res.json({ serverMapHours });
+  }),
+);
+
+apiRouter.get(
+  "/api/server-details-v2/:ip",
+  cacheMiddleware,
+  asyncify(async (req, res) => {
+    const dataloaders = buildDataloaders(db);
+
+    const name = allServersByIp.get(req.params.ip)?.name ?? "";
+    res.startTime("playerCounts", "");
+    const playerCounts = await dataloaders.playerCountWithMaps.load(
+      req.params.ip,
+    );
+    res.endTime("playerCounts");
+    res.json({
+      name,
+      playerCounts,
+    });
   }),
 );
 

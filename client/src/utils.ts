@@ -1,4 +1,4 @@
-import { DependencyList, useEffect, useState, MutableRefObject } from "react";
+import { DependencyList, useEffect, useState, RefObject } from "react";
 import { assert, geoIpAtom, logout, useAtom } from "./globals.ts";
 
 export let apiRoute = "";
@@ -143,27 +143,33 @@ export function calculateLongLatDistance(
   return R * c;
 }
 
-interface MapUpsertOptions<K, T> {
-  insert?: (key: K, self: Map<K, T>) => T;
-  update?: (old: T, key: K, self: Map<K, T>) => T;
+export interface MapUpsertOptions<K, T, Args extends any[]> {
+  insert?: (key: K, self: Map<K, T>, ...args: Args) => T;
+  update?: (old: T, key: K, self: Map<K, T>, ...args: Args) => T;
 }
 
-export function mapUpsert<K, T, Options extends MapUpsertOptions<K, T>>(
+export function mapUpsert<
+  K,
+  T,
+  Args extends any[],
+  Options extends MapUpsertOptions<K, T, Args>,
+>(
   map: Map<K, T>,
   key: K,
   options: Options,
+  ...args: Args
 ): Options["insert"] extends Function ? T : T | undefined {
   if (map.has(key)) {
-    const oldValue = map.get(key);
+    const oldValue = map.get(key)!;
     if (options.update) {
-      const newValue = options.update(oldValue!, key, map);
+      const newValue = options.update(oldValue, key, map, ...args);
       map.set(key, newValue);
       return newValue;
     }
     return oldValue!;
   } else {
     if (options.insert) {
-      const newValue = options.insert(key, map);
+      const newValue = options.insert(key, map, ...args);
       map.set(key, newValue);
       return newValue;
     }
@@ -249,7 +255,7 @@ interface Dimensions {
   height: number;
 }
 
-export function useElementSize(ref: MutableRefObject<HTMLElement>): Dimensions {
+export function useElementSize(ref: RefObject<HTMLElement | null>): Dimensions {
   const [dimensions, setDimensions] = useState<Dimensions>({
     width: 0,
     height: 0,
