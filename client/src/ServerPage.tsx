@@ -4,13 +4,14 @@ import { assert } from "./globals";
 import { useQuery } from "@tanstack/react-query";
 import {
   ByGamemodeChart,
+  getServerStats,
   HistoricalPlayerChart,
-  requestServerDetailMinimal,
-  requestServerDetailRest,
+  requestServerDetail,
   StatsAtAGlance,
   TotalMapTable,
 } from "./charts";
 import "./ServerPage.css";
+import { useMemo } from "react";
 
 interface ServerPageProps {
   isModal?: boolean;
@@ -41,21 +42,18 @@ export const ServerPage = ({ isModal }: ServerPageProps) => {
 
   const Title = isModal ? "h2" : "h1";
 
-  const { data: serverDetail1 } = useQuery({
+  const { data: originalServerStats } = useQuery({
     queryKey: ["detail", ip],
     async queryFn() {
-      return requestServerDetailMinimal(ip);
+      return requestServerDetail(ip);
     },
   });
 
-  const { data: serverDetail2 } = useQuery({
-    queryKey: ["detail2", ip],
-    async queryFn() {
-      return requestServerDetailRest(ip);
-    },
-  });
+  const serverDetail = useMemo(() => {
+    return getServerStats(originalServerStats);
+  }, [originalServerStats]);
 
-  const urlSafeName = generateUrlSafeName(serverDetail1?.name);
+  const urlSafeName = generateUrlSafeName(serverDetail?.name);
 
   const url = isModal
     ? `/server/${ip}/${urlSafeName}`
@@ -65,19 +63,15 @@ export const ServerPage = ({ isModal }: ServerPageProps) => {
     <div className={cx("server-page", isModal && "modal")}>
       <div className="title">
         <Title>
-          <a href={url}>{serverDetail1?.name}</a>
+          <a href={url}>{serverDetail?.name}</a>
         </Title>
       </div>
-      <TotalMapTable className="grid-area-maps" maps={serverDetail1?.maps} />
-      <ByGamemodeChart maps={serverDetail1?.maps} />
-      <StatsAtAGlance
-        playerCounts={serverDetail1?.playerCounts}
-        maps={serverDetail1?.maps}
-        serverMapHours={serverDetail2?.serverMapHours}
-      />
+      <TotalMapTable className="grid-area-maps" serverStats={serverDetail} />
+      <ByGamemodeChart serverStats={serverDetail} />
+      <StatsAtAGlance serverStats={serverDetail} />
       <HistoricalPlayerChart
         className="grid-area-historical"
-        playerCounts={serverDetail1?.playerCounts}
+        serverStats={serverDetail}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 /* eslint-disable no-loop-func */
 import React, { useMemo, useRef, useState } from "react";
 import cx from "classnames";
-import { api, mapUpsert, useElementSize } from "./utils.ts";
+import { api, mapUpsert, MapUpsertOptions, useElementSize } from "./utils.ts";
 import {
   Line,
   LineChart,
@@ -23,25 +23,110 @@ import { DefaultTooltipContent } from "recharts/lib/component/DefaultTooltipCont
 import dayjs from "dayjs";
 import Color from "color";
 import "./charts.css";
-import { officialMaps } from "./globals.ts";
+import { assert, officialMaps } from "./globals.ts";
+import memoize from "lodash/memoize";
 
-export interface ServerDetailMinimal {
+export interface ServerDetailStats {
   name: string;
-  playerCounts: Array<{ player_count: number; timestamp: number }>;
-  maps: Record<string, number>;
+  playerCounts: Array<{
+    map: string;
+    player_count: number;
+    player_hours: number;
+    raw_hours: number;
+    timestamp: number;
+  }>;
 }
 
-export interface ServerDetailRest {
-  serverMapHours: Array<{ map: string; date: string; hours: string }>;
-}
-
-export const requestServerDetailMinimal = (ip: string) => {
-  return api<ServerDetailMinimal>(`/api/server-details/${ip}`);
+export const requestServerDetail = (ip: string) => {
+  return api<ServerDetailStats>(`/api/server-details-v2/${ip}`);
 };
 
-export const requestServerDetailRest = (ip: string) => {
-  return api<ServerDetailRest>(`/api/server-details-p2/${ip}`);
+export const serverStatsGroupByMap = memoize(
+  (serverStats: ServerDetailStats) => {
+    type HoursByMap = { map: string; player_hours: number; raw_hours: number };
+    const maps = new Map<string, HoursByMap>();
+
+    const updater: MapUpsertOptions<string, HoursByMap, [number, number]> = {
+      insert(key, _self, player_hours, raw_hours) {
+        return { map: key, player_hours, raw_hours };
+      },
+      update(old, _key, _self, player_hours, raw_hours) {
+        old.raw_hours += raw_hours;
+        old.player_hours += player_hours;
+        return old;
+      },
+    };
+    for (const { map, player_hours, raw_hours } of serverStats.playerCounts) {
+      if (map != null) mapUpsert(maps, map, updater, player_hours, raw_hours);
+    }
+    const mapsArray = Array.from(maps.values()).sort((a, b) => {
+      return b.player_hours - a.player_hours;
+    });
+
+    return new Map(mapsArray.map((map) => [map.map, map]));
+  },
+);
+serverStatsGroupByMap.cache = new WeakMap();
+
+export const serverStatsGroupByTimestamp = memoize(
+  (serverStats: ServerDetailStats) => {
+    type HoursByTimestamp = {
+      timestamp: number;
+      player_count: number;
+      player_hours: number;
+      raw_hours: number;
+    };
+    const timestamps = new Map<number, HoursByTimestamp>();
+
+    const updater: MapUpsertOptions<
+      number,
+      HoursByTimestamp,
+      [number, number, number]
+    > = {
+      insert(key, _self, player_count, player_hours, raw_hours) {
+        return { timestamp: key, player_count, player_hours, raw_hours };
+      },
+      update(old, _key, _self, player_count, player_hours, raw_hours) {
+        old.player_count = Math.max(player_count, old.player_count);
+        old.raw_hours += raw_hours;
+        old.player_hours += player_hours;
+        return old;
+      },
+    };
+    for (const {
+      timestamp,
+      player_count,
+      player_hours,
+      raw_hours,
+    } of serverStats.playerCounts) {
+      mapUpsert(
+        timestamps,
+        timestamp,
+        updater,
+        player_count,
+        player_hours,
+        raw_hours,
+      );
+    }
+
+    // backend is already sorted by timestamp
+    return timestamps;
+  },
+);
+serverStatsGroupByTimestamp.cache = new WeakMap();
+
+export const getServerStats = (serverStats?: ServerDetailStats) => {
+  if (serverStats == null) {
+    return serverStats;
+  }
+  return {
+    ...serverStats,
+    byTimestamp: serverStatsGroupByTimestamp(serverStats),
+    byMap: serverStatsGroupByMap(serverStats),
+  };
 };
+
+export type IServerStats = ReturnType<typeof getServerStats>;
 
 const startOfRandomWeek = dayjs().startOf("week");
 const dayInMinutes = 60 * 24;
@@ -68,85 +153,68 @@ const piChartColors = [
 ];
 
 interface StatsAtAGlanceProps {
-  playerCounts: ServerDetailMinimal["playerCounts"] | undefined;
-  maps: ServerDetailMinimal["maps"] | undefined;
-  serverMapHours: ServerDetailRest["serverMapHours"] | undefined;
+  serverStats: IServerStats | undefined;
 }
 
-export function StatsAtAGlance({
-  playerCounts,
-  maps,
-  serverMapHours,
-}: StatsAtAGlanceProps) {
+export function StatsAtAGlance({ serverStats }: StatsAtAGlanceProps) {
   const stats = useMemo(() => {
-    if (playerCounts == null || maps == null || serverMapHours == null) {
+    if (serverStats == null) {
       return null;
     }
     let vanillaMaps = 0;
     let vanillaHours = 0;
     let customMaps = 0;
     let customHours = 0;
-    for (const [map, hours] of Object.entries(maps ?? {})) {
+    for (const [map, hours] of serverStats.byMap.entries()) {
       if (officialMaps.has(map)) {
         vanillaMaps += 1;
-        vanillaHours += hours;
+        vanillaHours += hours.player_hours;
       } else {
         customMaps += 1;
-        customHours += hours;
+        customHours += hours.player_hours;
       }
     }
 
-    const datesWithActiveSessions: Set<string> = new Set();
     let hoursPlayed = 0;
-    let sessions: number = 0;
+    let sessions = 0;
     let sessionStart = -1;
     let lastTimestamp = -1;
-    for (const playerCount of playerCounts ?? []) {
+    let mapsForActiveSessions = 0;
+    let gamemodesForActiveSessions = 0;
+    const mapsForThisSession = new Set<string>();
+    const gamemodesForThisSession = new Set<string>();
+    for (const record of serverStats.playerCounts ?? []) {
+      const timestamp = record.timestamp;
+
+      const playerCount = serverStats.byTimestamp.get(timestamp)?.player_count;
+      assert(playerCount != null, "Don't have a record for this timestamp");
       if (
         sessionStart > 0 &&
-        (playerCount.player_count <= 3 ||
-          playerCount.timestamp - sessionStart > 60 * 60 * 24 ||
-          playerCount.timestamp - lastTimestamp > 60 * 30 * 2)
+        (playerCount <= 3 ||
+          timestamp - sessionStart > 60 * 60 * 24 ||
+          timestamp - lastTimestamp > 60 * 30 * 2)
       ) {
         hoursPlayed += (lastTimestamp - sessionStart + 60 * 30) / 3600;
         sessionStart = -1;
       }
-      if (playerCount.player_count >= 10) {
+      if (playerCount >= 10) {
         if (sessionStart < 0) {
+          mapsForActiveSessions += mapsForThisSession.size;
+          gamemodesForActiveSessions += gamemodesForThisSession.size;
+          mapsForThisSession.clear();
+          gamemodesForThisSession.clear();
           sessions += 1;
-          sessionStart = playerCount.timestamp;
+          sessionStart = timestamp;
         }
       }
-      if (playerCount.player_count >= 5) {
-        datesWithActiveSessions.add(
-          dayjs.unix(playerCount.timestamp).utc().format("YYYY-MM-DD"),
-        );
+      if (sessionStart > 0) {
+        mapsForThisSession.add(record.map);
+        gamemodesForThisSession.add(mapToGamemode(record.map));
       }
 
-      lastTimestamp = playerCount.timestamp;
+      lastTimestamp = timestamp;
     }
-
-    const gamemodesForActiveSessions = new Map<
-      string,
-      { gamemodes: Set<string> }
-    >();
-    let mapsForActiveSessions = 0;
-    for (const record of serverMapHours ?? []) {
-      if (!datesWithActiveSessions.has(record.date)) {
-        continue;
-      }
-      const mapPerDay = mapUpsert(gamemodesForActiveSessions, record.date, {
-        insert() {
-          return { gamemodes: new Set() };
-        },
-      });
-      mapPerDay.gamemodes.add(mapToGamemode(record.map));
-      mapsForActiveSessions += 1;
-    }
-
-    const numberGamemodesForActiveSessions = [
-      ...gamemodesForActiveSessions.values(),
-    ].reduce((a, b) => a + b.gamemodes.size, 0);
+    gamemodesForActiveSessions += gamemodesForThisSession.size;
 
     const returnValue = {
       vanillaHours,
@@ -154,21 +222,21 @@ export function StatsAtAGlance({
       customMaps,
       customHours,
       averageActiveSessions: {
-        hours: hoursPlayed / sessions,
-        maps: mapsForActiveSessions / sessions,
-        gamemodes: numberGamemodesForActiveSessions / sessions,
-      },
-    };
-    if (sessions === 0) {
-      returnValue.averageActiveSessions = {
         hours: 0,
         maps: 0,
         gamemodes: 0,
+      },
+    };
+    if (sessions > 0) {
+      returnValue.averageActiveSessions = {
+        hours: hoursPlayed / sessions,
+        maps: mapsForActiveSessions / sessions,
+        gamemodes: gamemodesForActiveSessions / sessions,
       };
     }
 
     return returnValue;
-  }, [playerCounts, maps, serverMapHours]);
+  }, [serverStats]);
 
   if (stats == null) {
     return (
@@ -222,26 +290,31 @@ function mapToGamemode(map: string) {
 }
 
 interface ByGamemodeChartProps {
-  maps: ServerDetailMinimal["maps"] | undefined;
+  serverStats: IServerStats | undefined;
   className?: string;
 }
 
-export function ByGamemodeChart({ maps, className }: ByGamemodeChartProps) {
+export function ByGamemodeChart({
+  serverStats,
+  className,
+}: ByGamemodeChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const chartDimensions = useElementSize(ref);
   const byGamemode = useMemo(() => {
+    const maps = serverStats?.byMap;
     if (maps == null) {
       return {};
     }
     const gamemodeTotals: Record<string, number> = {};
 
-    for (const [mapName, hours] of Object.entries(maps)) {
+    for (const [mapName, hours] of maps.entries()) {
       const gamemode = mapToGamemode(mapName);
-      gamemodeTotals[gamemode] = (gamemodeTotals[gamemode] || 0) + hours;
+      gamemodeTotals[gamemode] =
+        (gamemodeTotals[gamemode] || 0) + hours.player_hours;
     }
 
     return gamemodeTotals;
-  }, [maps]);
+  }, [serverStats]);
 
   const byGamemodeHours = useMemo(() => {
     if (byGamemode == null) {
@@ -339,16 +412,16 @@ const HistoricalPlayerTooltip = (props: TooltipProps<ValueType, NameType>) => {
 };
 
 interface HistoricalPlayerChartProps {
-  playerCounts: ServerDetailMinimal["playerCounts"] | undefined;
+  serverStats: IServerStats | undefined;
   className?: string;
 }
 
 export function HistoricalPlayerChart({
-  playerCounts,
+  serverStats,
   className,
 }: HistoricalPlayerChartProps) {
   const { historicalData, maxWeek } = useMemo(() => {
-    const inputSource = playerCounts;
+    const inputSource = Array.from(serverStats?.byTimestamp.values() ?? []);
     if (inputSource == null || inputSource.length === 0) {
       return { historicalData: [], maxWeek: 0 };
     }
@@ -464,7 +537,7 @@ export function HistoricalPlayerChart({
     }
 
     return { historicalData: output, maxWeek };
-  }, [playerCounts]);
+  }, [serverStats]);
 
   return (
     <div className={cx("historical-player-count", className)}>
@@ -547,19 +620,19 @@ export function HistoricalPlayerChart({
 }
 
 interface TotalMapTableProps {
-  maps: ServerDetailMinimal["maps"] | undefined;
+  serverStats: IServerStats | undefined;
   className?: string;
   minimal?: boolean;
 }
 
 export function TotalMapTable({
-  maps,
+  serverStats,
   className,
   minimal,
 }: TotalMapTableProps) {
   const [page, setPage] = useState(0);
   const PAGE_COUNT = minimal ? 10 : 25;
-  const entries = Object.entries(maps ?? {});
+  const entries = [...(serverStats?.byMap ?? new Map()).entries()];
   const totalPages = Math.ceil(entries.length / PAGE_COUNT);
 
   const startPage = page * PAGE_COUNT;
@@ -580,7 +653,7 @@ export function TotalMapTable({
           {entries.slice(startPage, endPage).map(([map, hours]) => (
             <tr key={map}>
               <td title={map}>{map}</td>
-              <td>{hours}</td>
+              <td>{hours.player_hours.toFixed(1)}</td>
             </tr>
           ))}
           {needsPadding &&

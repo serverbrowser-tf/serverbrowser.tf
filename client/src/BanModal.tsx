@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { banAtom } from "./globals.ts";
 import { REGIONS, ServerInfo } from "./types.ts";
-import { api } from "./utils.ts";
+import { api, publicCategories } from "./utils.ts";
 import "./BanModal.css";
 import { Modal } from "./Modal.tsx";
 
@@ -131,17 +131,9 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
             Reason
             <select name="reason" defaultValue={reason}>
               <option value=""></option>
-              <option value="vanilla">Vanilla</option>
-              <option value="24/7">24/7 Server</option>
-              <option value="comp">Comp</option>
-              <option value="dm">DM</option>
-              <option value="fastpath">Fastpath</option>
-              <option value="gamemode">Gamemode</option>
-              <option value="jump/surf">Jump/Surf</option>
-              <option value="mvm">MVM</option>
-              <option value="social">Social</option>
-
-              <option value="other">Other</option>
+              {Object.entries(publicCategories).map(([key, value]) => (
+                <option value={key}>{value}</option>
+              ))}
               <option value="fake players">Fake players</option>
             </select>
           </label>

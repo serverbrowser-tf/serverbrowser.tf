@@ -1,11 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "./utils.ts";
 import "./ServerDetail.css";
 import {
-  ServerDetailMinimal,
   HistoricalPlayerChart,
   TotalMapTable,
+  getServerStats,
+  requestServerDetail,
 } from "./charts.tsx";
 
 interface Props {
@@ -16,14 +16,21 @@ export const ServerDetail = ({ ip }: Props) => {
   const { data } = useQuery({
     queryKey: ["detail", ip],
     async queryFn() {
-      return await api<ServerDetailMinimal>(`/api/server-details/${ip}`);
+      if (ip == null) {
+        return undefined;
+      }
+      return requestServerDetail(ip);
     },
   });
 
+  const serverDetail = useMemo(() => {
+    return getServerStats(data);
+  }, [data]);
+
   return (
     <div className="server-detail">
-      <TotalMapTable maps={data?.maps} minimal />
-      <HistoricalPlayerChart playerCounts={data?.playerCounts} />
+      <TotalMapTable serverStats={serverDetail} minimal />
+      <HistoricalPlayerChart serverStats={serverDetail} />
     </div>
   );
 };
