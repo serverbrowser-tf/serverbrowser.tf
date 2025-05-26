@@ -80,6 +80,12 @@ const superFilterMapList = [
   "zr_",
   "zs_",
 
+  "sn_",
+  "sniper_",
+  "gm_",
+  "oot3d_",
+  "walmart_",
+
   // I kinda don't like having tf2ware in the "super" filter list. I feel like
   // if a random server wants to have a wacky gamemode night they should still
   // be in vanilla. In the grand scheme of things tf2ware isn't that different
@@ -117,6 +123,27 @@ export function cleanupServerInfo(servers: HydratedServerInfo[]) {
   }
 }
 
+const vanillaishGamemodePrefixes = [
+  "ctf_",
+  "cp_",
+  "koth_",
+  "pl_",
+  "plr_",
+  "pd_",
+  "rd_",
+  "tc_",
+  "sd_",
+  "arena_",
+  "tow_",
+
+  // this what makes it -ish
+  "dom_",
+  "vip_",
+  "kotc_",
+  "dm_",
+  "gg_",
+];
+
 function serverPassesFilters(
   server: ServerInfo,
   mapList: IFilterMapList,
@@ -148,6 +175,16 @@ function serverPassesFilters(
 }
 
 export function isServerNormal(server: ServerInfo) {
+  let notSlopMap = false;
+  for (const mapPrefix of vanillaishGamemodePrefixes) {
+    if (server.map?.toLowerCase().startsWith(mapPrefix)) {
+      notSlopMap = true;
+      break;
+    }
+  }
+  if (!notSlopMap) {
+    return false;
+  }
   return serverPassesFilters(server, filterMapList, filterList);
 }
 export function isServerSuperNormal(server: ServerInfo) {
