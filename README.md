@@ -68,6 +68,12 @@ convince me otherwise
 
 ---
 
+### What's active hours?
+
+How many hours in the past month has the server had more than 10 players. The intention is to provide a way to filter out the hundreds of empty community servers with servers that actually have some playerbase. It is unfortunate for servers to have to filter out empty servers but it's not fun as a user to seed a server with < 5 players
+
+---
+
 ### Build instructions???
 
 If you have to ask, you probably shouldn't even bother...
