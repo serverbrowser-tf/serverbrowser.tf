@@ -13,7 +13,7 @@
 }
 
 .brand-title {
-    margin: 0;
+  margin: 0;
   font-weight: 600;
   font-size: 16px;
   line-height: 32px;
@@ -28,7 +28,7 @@
 :root {
   font-family: sans-serif;
   color-scheme: dark;
-  --border-color : #403c33;
+  --border-color: #403c33;
   --hr-border-color: #4a453d;
   --background-color: #393532;
   --background-color2: #221f1c;
@@ -126,7 +126,7 @@ button {
 .link-button.active,
 button:active,
 button.active {
-    color: var(--button-active-color);
+  color: var(--button-active-color);
 }
 
 .disabled {
@@ -134,28 +134,31 @@ button.active {
 }
 
 .modal-container {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
 
-    background-color: #00000066;
+  background-color: #00000066;
 }
 
 .modal {
-    padding: 8px;
-    background-color: var(--background-color);
-    border: 1px solid var(--border-color);
+  padding: 8px;
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+  max-height: 90vh;
+  max-width: 90vw;
+  overflow: auto;
 }
 .right-align > * {
   margin-left: auto;
 }
 
 form {
-    .error {
-        color: var(--error-color);
-        margin-left: 0;
-    }
+  .error {
+    color: var(--error-color);
+    margin-left: 0;
+  }
 }
 
 .caret {
@@ -171,8 +174,8 @@ form {
 }
 
 nav {
-    display: flex;
-    padding-top: 4px;
-    place-items: center;
+  display: flex;
+  padding-top: 4px;
+  place-items: center;
   margin: 0 1em;
 }
