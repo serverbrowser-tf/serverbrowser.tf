@@ -286,6 +286,18 @@ export const officialMaps = new Set([
   "vsh_maul",
   "koth_overcast_final",
   "ctf_penguin_peak",
+
+  // summer 2025
+  "pl_aquarius",
+  "koth_blowout",
+  "koth_boardwalk",
+  "cp_cargo",
+  "pl_citadel",
+  "cp_conifer",
+  "koth_demolition",
+  "cp_fulgur",
+  "koth_mannhole",
+  "ctf_pressure",
 ]);
 
 export const geoIpAtom = new Atom<[number, number] | null | undefined>(
