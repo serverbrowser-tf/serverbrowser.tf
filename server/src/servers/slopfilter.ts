@@ -1,4 +1,8 @@
-import { HydratedServerInfo, ServerInfo } from "../types";
+import {
+  HydratedServerInfo,
+  ServerInfo,
+  SteamWebApiServerInfo,
+} from "../types";
 import { partition } from "lodash";
 
 // slop filtering is split up into two restriction types. Previously
@@ -116,10 +120,10 @@ function cleanupString(str: string | undefined) {
   return str;
 }
 
-export function cleanupServerInfo(servers: HydratedServerInfo[]) {
+export function cleanupServerInfo(servers: SteamWebApiServerInfo[]) {
   for (const server of servers) {
     server.name = cleanupString(server.name);
-    server.keywords = cleanupString(server.keywords);
+    server.gametype = cleanupString(server.gametype);
   }
 }
 

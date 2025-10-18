@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { buildDataloaders, getDb } from "../db";
+import { buildDataloaders, db } from "../db";
 import { asyncify } from "../utils";
 
 const router = Router();
@@ -7,7 +7,6 @@ const router = Router();
 router.get(
   "/api/maps",
   asyncify(async (req, res) => {
-    const db = getDb();
     const dataloaders = buildDataloaders(db);
 
     res.setHeader("Cache-Control", "public, max-age=7200");
@@ -28,7 +27,6 @@ router.get(
 router.get(
   "/api/maps/details/:map",
   asyncify(async (req, res) => {
-    const db = getDb();
     const dataloaders = buildDataloaders(db);
     const map = req.params.map;
 

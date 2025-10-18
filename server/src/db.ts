@@ -590,7 +590,6 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
         const typed: UnhydratedServerInfo = row as any;
         typed.server = row.ip;
         typed.keywords = row.keyword;
-        typed.regions = row.region;
       }
 
       return rows as unknown as UnhydratedServerInfo[];
@@ -736,7 +735,7 @@ VALUES {}
         server.server,
         server.name,
         server.keywords ?? "",
-        Number(server.regions),
+        Number(server.region),
         mapIds[i] instanceof Error ? null : mapIds[i],
         server.visibility,
         server.maxPlayers,
@@ -932,16 +931,3 @@ ON CONFLICT(server_id) DO UPDATE SET
   };
 });
 buildUpdaterService.cache = new WeakMap();
-
-// async function main() {
-//   const db = getDb();
-//   const service = buildUpdaterService(db);
-//
-//   const file = (await fs.readFile("./servers.json")).toString("utf8");
-//   const json = JSON.parse(file);
-//
-//   service.updateServers(json);
-//   await service.updateServerPlayers(json, new Date());
-//   await service.updateServerMapHours(json, 10 * 60, new Date());
-// }
-// main();

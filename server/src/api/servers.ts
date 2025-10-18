@@ -2,13 +2,13 @@ import { NextFunction, Request, Response, Router } from "express";
 import fs from "fs/promises";
 
 import { buildDataloaders, buildUpdaterService, db } from "../db";
-import { getAllServers, pingServers } from "../servers";
+import { getAllServers, getListOfServers, pingServers } from "../servers";
 import {
   cleanupServerInfo,
   isServerNormal,
   isServerSuperNormal,
 } from "../servers/slopfilter";
-import { ServerInfo } from "../types";
+import { ServerInfo, steamWebApiServerInfoToLegacy } from "../types";
 import { assert, asyncify, isDev, mapUpsert, sleep } from "../utils";
 
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
@@ -57,30 +57,16 @@ async function pingServersForever() {
 
     console.time("Refreshing servers");
     const now = new Date();
-    const pingedServers = await pingServers();
-    updater.updateLastOnline(pingedServers.map((server) => server.ip));
-    cleanupServerInfo(pingedServers);
-    await updater.updateServers(pingedServers);
-    if (lastRequestTime > 0) {
-      const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
-      await updater.updateServerPlayers(pingedServers, diffInSeconds, now);
-      await updater.updateServerMapHours(pingedServers, diffInSeconds, now);
-    } else {
-      await updater.updateServerPlayers(pingedServers, 0, now);
-    }
-    lastRequestTime = Number(now);
+    const steamServers = await getListOfServers();
+    console.log("Found", steamServers.length, "servers from web api");
+    cleanupServerInfo(steamServers);
 
     const geoIps = await dataloaders.serverLocations.loadMany(
-      pingedServers.map((server) => server.ip.split(":")[0]),
+      steamServers.map((server) => server.addr.split(":")[0]),
     );
 
-    for (const server of allServersByIp.values()) {
-      server.players = 0;
-      server.bots = 0;
-    }
-
-    for (let i = 0; i < pingedServers.length; i++) {
-      const server = pingedServers[i];
+    for (let i = 0; i < steamServers.length; i++) {
+      const server = steamServers[i];
       const geoIp = geoIps[i];
       if (geoIp instanceof Error) {
         console.error(geoIp);
@@ -90,7 +76,19 @@ async function pingServersForever() {
       } else {
         server.geoip = null;
       }
+    }
 
+    // temporary bodge while I get this to work and move things over to
+    // steamServers
+    const legacyServers = steamWebApiServerInfoToLegacy(steamServers);
+
+    for (const server of allServersByIp.values()) {
+      server.players = 0;
+      server.bots = 0;
+    }
+
+    for (let i = 0; i < legacyServers.length; i++) {
+      const server = legacyServers[i];
       mapUpsert(allServersByIp, server.ip, {
         insert() {
           const reason = blacklist.get(server.ip) ?? null;
@@ -110,6 +108,17 @@ async function pingServersForever() {
         },
       });
     }
+
+    updater.updateLastOnline(steamServers.map((server) => server.addr));
+    await updater.updateServers(legacyServers);
+    if (lastRequestTime > 0) {
+      const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
+      await updater.updateServerPlayers(legacyServers, diffInSeconds, now);
+      await updater.updateServerMapHours(legacyServers, diffInSeconds, now);
+    } else {
+      await updater.updateServerPlayers(legacyServers, 0, now);
+    }
+    lastRequestTime = Number(now);
 
     let notFiltered: ServerInfo[] = [];
     servers = Object.fromEntries(
@@ -149,7 +158,7 @@ async function pingServersForever() {
 
     id = Math.random().toString(36).substring(2);
     fs.writeFile(`./servers.json`, JSON.stringify(servers));
-    console.info("Got", pingedServers.length, "servers");
+    console.info("Got", steamServers.length, "servers");
     console.timeEnd("Refreshing servers");
 
     const timeToSleep = 1000 * 60 * refreshPeriod;
@@ -161,7 +170,7 @@ async function pingServersForever() {
       lastQueriedAllServers = Date.now();
       console.time("Querying all servers");
       const servers = await getAllServers();
-      updater.updateLastOnline(servers);
+      updater.updateLastOnline(servers.map((server) => server.addr));
       console.timeEnd("Querying all servers");
     }
 

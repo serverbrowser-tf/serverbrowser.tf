@@ -92,7 +92,7 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
           </label>
           <label>
             Region
-            <input type="text" disabled value={REGIONS[serverToBan.regions]} />
+            <input type="text" disabled value={REGIONS[serverToBan.region]} />
           </label>
           <label>
             Keywords
