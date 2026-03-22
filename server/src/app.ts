@@ -7,6 +7,8 @@ import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
 import { scheduleDbOptimize } from "./db";
+import { startServerRefreshLoop } from "./servers/refresh";
+import { loadInitialServersJson } from "./servers/store";
 
 const app = express();
 const PORT = 3030;
@@ -27,6 +29,13 @@ app.use(login);
 app.use(servers);
 app.use(misc);
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`Server is listening on port ${PORT}`);
-});
+async function main() {
+  await loadInitialServersJson();
+  void startServerRefreshLoop();
+
+  app.listen(PORT, "127.0.0.1", () => {
+    console.log(`Server is listening on port ${PORT}`);
+  });
+}
+
+void main();

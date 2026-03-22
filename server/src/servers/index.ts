@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import { SteamWebApiServerInfo } from "../types";
 import fastpath from "./fastpath.json";
 
-const ipBan = new Set([...fastpath.map((server) => server.addr)]);
+const ipBan = new Set(fastpath.map((server) => server.addr));
 
 // https://developer.valvesoftware.com/wiki/Master_Server_Query_Protocol#Filter
 
@@ -19,7 +19,8 @@ const getServerListUrl = () => {
 
 function filterHidden(servers: SteamWebApiServerInfo[]) {
   return servers.filter((server) => {
-    if (ipBan.has(server.addr)) {
+    const ip = server.addr.split(":")[0];
+    if (ipBan.has(ip)) {
       return false;
     }
     return true;

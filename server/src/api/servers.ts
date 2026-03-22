@@ -1,188 +1,24 @@
 import { NextFunction, Request, Response, Router } from "express";
-import fs from "fs/promises";
 
 import { buildDataloaders, buildUpdaterService, db } from "../db";
-import { getAllServers, getListOfServers, pingServers } from "../servers";
+import { ServerInfo } from "../types";
+import { assert, asyncify } from "../utils";
 import {
-  cleanupServerInfo,
-  isServerNormal,
-  isServerSuperNormal,
-} from "../servers/slopfilter";
-import { ServerInfo, steamWebApiServerInfoToLegacy } from "../types";
-import { assert, asyncify, isDev, mapUpsert, sleep } from "../utils";
+  applyBan,
+  dedupeServersBySteamId,
+  getCacheState,
+  getHydratedServerByIp,
+  getHydratedServersByIp,
+  getOnlineServers as getOnlineServersFromStore,
+  resolveSteamId,
+} from "../servers/store";
 
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
-import { omit } from "lodash";
-
-const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
-
-let id = Math.random().toString(36).substring(2);
-let lastRequestTime = -1;
-let nextQueueTime = -1;
-let blacklist = new Map<string, string>();
-let allServersByBlacklist = new Map<string | null, Map<string, ServerInfo>>();
-let allServersByIp = new Map<string, ServerInfo>();
-let servers: Record<string, ServerInfo[]> = await (async () => {
-  try {
-    const file = await fs.readFile("./servers.json");
-    const json = JSON.parse(file.toString("utf8"));
-    if (Array.isArray(json)) {
-      return {};
-    }
-    return json;
-  } catch {
-    return {};
-  }
-})();
-let refreshPromise = Promise.withResolvers<void>();
-
-async function pingServersForever() {
-  const dataloaders = buildDataloaders(db);
-  const updater = buildUpdaterService(db);
-  blacklist = dataloaders.blacklist();
-  let lastQueriedAllServers = -1;
-  const queryAllServersDelay = 1000 * 60 * 60 * 6;
-
-  while (true) {
-    const queriesAllServersThisLoop =
-      lastQueriedAllServers + queryAllServersDelay < Date.now();
-    if (queriesAllServersThisLoop) {
-      console.time("all servers");
-      const allServers = await dataloaders.allServers();
-      console.log("Found", allServers.ipMapping.size, "servers from db");
-      allServersByBlacklist = allServers.reasonMapping;
-      allServersByIp = allServers.ipMapping;
-      console.timeEnd("all servers");
-    }
-
-    console.time("Refreshing servers");
-    const now = new Date();
-    const steamServers = await getListOfServers();
-    console.log("Found", steamServers.length, "servers from web api");
-    cleanupServerInfo(steamServers);
-
-    const geoIps = await dataloaders.serverLocations.loadMany(
-      steamServers.map((server) => server.addr.split(":")[0]),
-    );
-
-    for (let i = 0; i < steamServers.length; i++) {
-      const server = steamServers[i];
-      const geoIp = geoIps[i];
-      if (geoIp instanceof Error) {
-        console.error(geoIp);
-        server.geoip = null;
-      } else if (geoIp) {
-        server.geoip = [geoIp.long, geoIp.lat];
-      } else {
-        server.geoip = null;
-      }
-    }
-
-    // temporary bodge while I get this to work and move things over to
-    // steamServers
-    const legacyServers = steamWebApiServerInfoToLegacy(steamServers);
-
-    for (const server of allServersByIp.values()) {
-      server.players = 0;
-      server.bots = 0;
-    }
-
-    for (let i = 0; i < legacyServers.length; i++) {
-      const server = legacyServers[i];
-      mapUpsert(allServersByIp, server.ip, {
-        insert() {
-          const reason = blacklist.get(server.ip) ?? null;
-          mapUpsert(allServersByBlacklist, reason, {
-            insert() {
-              return new Map([[server.ip, server]]);
-            },
-            update(old) {
-              old.set(server.ip, server);
-              return old;
-            },
-          });
-          return server;
-        },
-        update(old) {
-          return Object.assign(old, server);
-        },
-      });
-    }
-
-    updater.updateLastOnline(steamServers.map((server) => server.addr));
-    await updater.updateServers(legacyServers);
-    if (lastRequestTime > 0) {
-      const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
-      await updater.updateServerPlayers(legacyServers, diffInSeconds, now);
-      await updater.updateServerMapHours(legacyServers, diffInSeconds, now);
-    } else {
-      await updater.updateServerPlayers(legacyServers, 0, now);
-    }
-    lastRequestTime = Number(now);
-
-    let notFiltered: ServerInfo[] = [];
-    servers = Object.fromEntries(
-      [...allServersByBlacklist.entries()]
-        .filter(([key, servers]) => {
-          if (key == null) {
-            notFiltered = [...servers.values()];
-            return false;
-          }
-          return true;
-        })
-        .map(([key, value]) => {
-          const thisServers = [...value.values()];
-          for (const server of thisServers) {
-            server.category = key ?? undefined;
-          }
-          return [key, thisServers];
-        }),
-    );
-    const vanillaServers = servers.vanilla ?? [];
-    servers.__filtered = [];
-    servers.vanilla = [];
-    for (const server of vanillaServers) {
-      if (isServerSuperNormal(server)) {
-        servers.vanilla.push(server);
-      } else {
-        servers.__filtered.push(server);
-      }
-    }
-    for (const server of notFiltered) {
-      if (isServerNormal(server)) {
-        servers.vanilla.push(server);
-      } else {
-        servers.__filtered.push(server);
-      }
-    }
-
-    id = Math.random().toString(36).substring(2);
-    fs.writeFile(`./servers.json`, JSON.stringify(servers));
-    console.info("Got", steamServers.length, "servers");
-    console.timeEnd("Refreshing servers");
-
-    const timeToSleep = 1000 * 60 * refreshPeriod;
-    nextQueueTime = Date.now() + timeToSleep;
-    refreshPromise = Promise.withResolvers();
-    setInterval(refreshPromise.resolve, timeToSleep);
-
-    if (queriesAllServersThisLoop) {
-      lastQueriedAllServers = Date.now();
-      console.time("Querying all servers");
-      const servers = await getAllServers();
-      updater.updateLastOnline(servers.map((server) => server.addr));
-      console.timeEnd("Querying all servers");
-    }
-
-    await refreshPromise.promise;
-  }
-}
-
-pingServersForever();
 
 const apiRouter = Router();
 
 const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const { id, nextQueueTime } = getCacheState();
   const etag = `w/"${id}"`;
   const ifNoneMatch = req.headers["if-none-match"]
     ?.split(",")
@@ -203,37 +39,30 @@ const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
-function getOnlineServers(req: Request, res: Response) {
-  const category = req.query.category;
-  const hasUsersPlaying = Number(req.query.hasUsersPlaying ?? "1");
+function getOnlineServersHandler(req: Request, res: Response) {
+  const category =
+    typeof req.query.category === "string" ? req.query.category : undefined;
+  const hasUsersPlaying = Number(req.query.hasUsersPlaying ?? "1") !== 0;
+  const regions =
+    "region" in req.query
+      ? (Array.isArray(req.query.region)
+          ? req.query.region
+          : [req.query.region]
+        ).map((region) => Number(region))
+      : undefined;
 
-  let copy: ServerInfo[];
-  if (category === "all") {
-    copy = Object.values(omit(servers, "fake players")).flat();
-  } else {
-    copy = servers[String(category ?? "vanilla")];
-  }
-  if (hasUsersPlaying) {
-    copy = copy.filter((server) => {
-      const players = (server.players ?? 0) - (server.bots ?? 0);
-      return players !== 0;
-    });
-  }
-  if ("region" in req.query) {
-    const regionStr = Array.isArray(req.query.region)
-      ? req.query.region
-      : [req.query.region];
-    const regionsFilter = regionStr.map((region) => Number(region));
-
-    copy = copy.filter((server) => regionsFilter.includes(server.region));
-  }
-
-  res.status(200).json(copy);
+  res.status(200).json(
+    getOnlineServersFromStore({
+      category,
+      hasUsersPlaying,
+      regions,
+    }),
+  );
 }
 
-apiRouter.get("/api/servers/all", cacheMiddleware, getOnlineServers);
+apiRouter.get("/api/servers/all", cacheMiddleware, getOnlineServersHandler);
 
-apiRouter.get("/api/servers.json", cacheMiddleware, getOnlineServers);
+apiRouter.get("/api/servers.json", cacheMiddleware, getOnlineServersHandler);
 
 apiRouter.get(
   "/api/servers",
@@ -258,7 +87,7 @@ apiRouter.get(
     );
     res.endTime("db");
     res.startTime("hydration", "");
-    const hydratedServers = allServersByIp;
+    const hydratedServers = getHydratedServersByIp();
     for (const server of servers) {
       const hydratedServer = hydratedServers.get(server.ip);
       if (hydratedServer != null) {
@@ -268,7 +97,7 @@ apiRouter.get(
       }
     }
     res.endTime("hydration");
-    res.json(servers);
+    res.json(dedupeServersBySteamId(servers));
   }),
 );
 
@@ -284,24 +113,7 @@ apiRouter.post(
     } else {
       await updater.deleteServerFromBlacklist(ip);
     }
-    let activeServer: ServerInfo | undefined;
-    for (const servers of allServersByBlacklist.values()) {
-      if (servers.has(ip)) {
-        activeServer = servers.get(ip)!;
-      }
-      servers.delete(ip);
-    }
-    if (activeServer && reason !== "") {
-      mapUpsert(allServersByBlacklist, reason, {
-        insert() {
-          return new Map([[ip, activeServer]]);
-        },
-        update(old) {
-          old.set(ip, activeServer);
-          return old;
-        },
-      });
-    }
+    await applyBan(ip, reason);
     res.status(200).json({
       success: true,
     });
@@ -324,7 +136,7 @@ apiRouter.get(
     );
     res.endTime("geoip");
 
-    const hydratedServersById = allServersByIp;
+    const hydratedServersById = getHydratedServersByIp();
 
     for (let i = 0; i < allServers.length; i++) {
       const server = allServers[i];
@@ -342,7 +154,7 @@ apiRouter.get(
       Object.assign(allServers[i], hydratedServer);
     }
 
-    res.json(allServers);
+    res.json(dedupeServersBySteamId(allServers));
   }),
 );
 
@@ -352,6 +164,11 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
+    const steamid = await resolveSteamId(req.params.ip);
+    if (!steamid) {
+      res.status(404).end();
+      return;
+    }
     let limit = req.query.mapLimit ? Number(req.query.mapLimit) : 10;
     if (Number.isNaN(limit)) {
       limit = 10;
@@ -359,10 +176,10 @@ apiRouter.get(
 
     if (isLoggedIn(req)) {
       res.startTime("maps", "");
-      const maps = await dataloaders.mapHours.load(req.params.ip);
+      const maps = await dataloaders.mapHours.load(steamid);
       res.endTime("maps");
       res.startTime("playerCounts", "");
-      const playerCounts = await dataloaders.playerCount.load(req.params.ip);
+      const playerCounts = await dataloaders.playerCount.load(steamid);
       res.endTime("playerCounts");
 
       res.json({
@@ -371,8 +188,8 @@ apiRouter.get(
       });
     } else {
       const [maps, playerCounts] = await Promise.all([
-        dataloaders.mapHours.load(req.params.ip),
-        dataloaders.playerCount.load(req.params.ip),
+        dataloaders.mapHours.load(steamid),
+        dataloaders.playerCount.load(steamid),
       ]);
       res.json({
         maps: Object.fromEntries(maps.slice(0, 10)),
@@ -389,15 +206,20 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
+    const steamid = await resolveSteamId(req.params.ip);
+    if (!steamid) {
+      res.status(404).end();
+      return;
+    }
 
-    const name = allServersByIp.get(req.params.ip)?.name ?? "";
+    const name = getHydratedServerByIp(req.params.ip)?.name ?? "";
 
     if (isLoggedIn(req)) {
       res.startTime("maps", "");
-      const maps = await dataloaders.mapHours.load(req.params.ip);
+      const maps = await dataloaders.mapHours.load(steamid);
       res.endTime("maps");
       res.startTime("playerCounts", "");
-      const playerCounts = await dataloaders.playerCount.load(req.params.ip);
+      const playerCounts = await dataloaders.playerCount.load(steamid);
       res.endTime("playerCounts");
 
       res.json({
@@ -407,8 +229,8 @@ apiRouter.get(
       });
     } else {
       const [maps, playerCounts] = await Promise.all([
-        dataloaders.mapHours.load(req.params.ip),
-        dataloaders.playerCount.load(req.params.ip),
+        dataloaders.mapHours.load(steamid),
+        dataloaders.playerCount.load(steamid),
       ]);
       res.json({
         name,
@@ -426,9 +248,14 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
+    const steamid = await resolveSteamId(req.params.ip);
+    if (!steamid) {
+      res.status(404).end();
+      return;
+    }
 
     res.startTime("serverMapHours", "");
-    const serverMapHours = await dataloaders.serverMapHours.load(req.params.ip);
+    const serverMapHours = await dataloaders.serverMapHours.load(steamid);
     res.endTime("serverMapHours");
 
     res.json({ serverMapHours });
@@ -440,12 +267,15 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
+    const steamid = await resolveSteamId(req.params.ip);
+    if (!steamid) {
+      res.status(404).end();
+      return;
+    }
 
-    const name = allServersByIp.get(req.params.ip)?.name ?? "";
+    const name = getHydratedServerByIp(req.params.ip)?.name ?? "";
     res.startTime("playerCounts", "");
-    const playerCounts = await dataloaders.playerCountWithMaps.load(
-      req.params.ip,
-    );
+    const playerCounts = await dataloaders.playerCountWithMaps.load(steamid);
     res.endTime("playerCounts");
     res.json({
       name,

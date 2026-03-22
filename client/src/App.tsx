@@ -55,6 +55,7 @@ const expandedRowsAtom = new Atom(new Set<string>());
 type MasterRowData = ServerInfo & {
   type: "MASTER";
   ping: number | null;
+  hats: number;
 };
 
 interface DetailRowData {
@@ -65,6 +66,19 @@ interface DetailRowData {
 type RowData = MasterRowData | DetailRowData;
 
 let actualColumns: Column<RowData>[] = [];
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function getHatCount(ip: string, players: number) {
+  const multiplier = 1 + (hashString(ip) % 2001) / 1000;
+  return Math.round(players * multiplier);
+}
 
 const cols: Column<RowData>[] = [
   {
@@ -287,6 +301,20 @@ function rowKeyGetter(data: RowData) {
   return `detail_${data.row.ip}`;
 }
 
+function dedupeServersBySteamId(servers: ServerInfo[]): ServerInfo[] {
+  const seenSteamIds = new Set<string>();
+  return servers.filter((server) => {
+    if (!server.steamid) {
+      return true;
+    }
+    if (seenSteamIds.has(server.steamid)) {
+      return false;
+    }
+    seenSteamIds.add(server.steamid);
+    return true;
+  });
+}
+
 function App() {
   const [category, setCategory] = useLocalStorage("category", "vanilla");
   const [latency, setLatency] = useLocalStorage("latency", "");
@@ -409,9 +437,10 @@ function App() {
         }
         url.searchParams.set("category", category);
       }
-      return await api<ServerInfo[]>(url.toString(), {
+      const fetched = await api<ServerInfo[]>(url.toString(), {
         signal,
       });
+      return dedupeServersBySteamId(fetched);
     },
     retry: true,
     retryDelay: 1000,
@@ -440,6 +469,10 @@ function App() {
         type: "MASTER",
         ...record,
         ping,
+        hats: getHatCount(
+          record.ip,
+          (record.players ?? 0) - (record.bots ?? 0),
+        ),
       };
     });
     let copy = masterRows;
@@ -592,7 +625,7 @@ function App() {
       ...copy[0],
       name: `Servers (${sortedRows.length})`,
     };
-    if (category === "all" || category === "__filtered") {
+    if (category === "all") {
       const index = copy.findIndex((value) => value.key === "region");
       // should always pass
       assert(index >= 0, "Someone messed up the column defs...");
@@ -628,6 +661,24 @@ function App() {
           };
         }
       }
+    }
+    const now = new Date();
+    const isAprilFools = now.getMonth() === 3 && now.getDate() === 1;
+    if (isAprilFools || true) {
+      const index = copy.findIndex((value) => value.key === "players");
+      assert(index >= 0, "Someone messed up the column defs...");
+      copy.splice(index + 1, 0, {
+        key: "hats",
+        name: "Number of hats",
+        width: 140,
+        sortDescendingFirst: true,
+        renderCell(thing) {
+          if (thing.row.type === "MASTER") {
+            return String(thing.row.hats);
+          }
+          return "";
+        },
+      });
     }
     if (isLoggedIn) {
       copy.push(...adminColumns);
@@ -864,9 +915,6 @@ function App() {
                 {Object.entries(publicCategories).map(([key, value]) => (
                   <option value={key}>{value}</option>
                 ))}
-                {loggedInAtom.value && (
-                  <option value="__filtered">Filtered</option>
-                )}
               </select>
             </label>
 

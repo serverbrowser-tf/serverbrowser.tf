@@ -27,14 +27,17 @@
     "@types/bun": "latest",
     "@types/color": "^4.2.0",
     "@types/lodash": "^4.17.17",
+    "oxlint": "latest",
     "prettier": "^3.5.3",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "@typescript/native-preview": "latest"
   },
   "scripts": {
     "start": "craco start",
     "build": "craco build",
     "test": "craco test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --fix"
   },
   "eslintConfig": {
     "extends": [

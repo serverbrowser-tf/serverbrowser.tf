@@ -5,38 +5,13 @@ import geoIp2 from "geoip-lite2";
 import { chunk, memoize } from "lodash";
 import QuickLRU from "quick-lru";
 
-import { HydratedServerInfo, ServerInfo, UnhydratedServerInfo } from "./types";
+import { HydratedServerInfo, ServerInfo, SteamId, UnhydratedServerInfo } from "./types";
 import { mapUpsert, scheduleDaily } from "./utils";
-
-interface BlacklistRow {
-  id: number;
-  server_id: number;
-  reason: string;
-}
-
-interface MapRow {
-  id: number;
-  map: string;
-}
-
-interface ServerMapHourRow {
-  id: number;
-  server_id: number;
-  map_id: number;
-  hours: number;
-  date: Date;
-}
-
-interface ServerPlayerRow {
-  id: number;
-  server_id: number;
-  player_count: number;
-  timestamp: Date;
-}
 
 interface ServerRow {
   id: number;
   ip: string;
+  steamid: string | null;
   name: string;
   keyword: string;
   region: number;
@@ -58,18 +33,22 @@ async function migrate(db: Database) {
     return;
   }
 
+  const runMigration = db.transaction((sql: string) => {
+    db.run(sql);
+  });
+
   migrationFiles.sort();
   for (let i = dbVersion; i < migrationFiles.length; i++) {
     const file = (
       await fs.readFile(`./migrations/${migrationFiles[i]}`)
     ).toString("utf8");
-    db.run(file);
+
+    runMigration(file);
   }
   db.run(`PRAGMA user_version = ${Math.max(dbVersion, migrationFiles.length)}`);
 }
 
 export var db: Database = getDb();
-// you would have to import / invoke this in another file
 export function getDb(): Database {
   if (db == null) {
     db = new Database("./database.sqlite", {
@@ -134,7 +113,33 @@ UPDATE sqlite_sequence SET seq = (
 export const buildDataloaders = memoize(function buildDataloaders(
   db: Database,
 ) {
-  const serverId = new DataLoader<string, number>(
+  const serverId = new DataLoader<SteamId, number>(
+    async function queryServerIds(steamids) {
+      const queryStr = `
+SELECT steamid, id FROM servers WHERE steamid in {}
+`;
+      const query = db.prepare<{ steamid: string; id: number }, string[]>(
+        buildQueryBindings(queryStr, steamids.length, 1),
+      );
+
+      const recordsBySteamId: Record<string, number> = {};
+      for (const row of query.iterate(...steamids)) {
+        recordsBySteamId[row.steamid] = row.id;
+      }
+
+      return steamids.map(
+        (steamid) =>
+          recordsBySteamId[steamid] ??
+          new Error(`Could not find steamid ${steamid}`),
+      );
+    },
+    {
+      cacheMap: new QuickLRU({ maxSize: 1000 }),
+      maxBatchSize: 500,
+    },
+  );
+
+  const serverIdByIp = new DataLoader<string, number>(
     async function queryServerIds(ips) {
       const queryStr = `
 SELECT ip, id FROM servers WHERE ip in {}
@@ -184,15 +189,15 @@ SELECT map, id FROM maps WHERE map in {}
   );
 
   type MapHourResult = [string, number][];
-  const mapHours = new DataLoader<string, MapHourResult>(
-    async function queryServerDetails(ips) {
+  const mapHours = new DataLoader<SteamId, MapHourResult>(
+    async function queryServerDetails(steamids) {
       const mapHoursQueryStr = `
     SELECT m.map,
            ROUND(SUM(smh.hours), 1) total_hours
     FROM servers s
     JOIN server_map_hours smh ON s.id = smh.server_id
     JOIN maps m ON m.id = smh.map_id
-    WHERE s.ip = ?
+    WHERE s.steamid = ?
     AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
     AND smh.date >= date('now', '-28 days')
     GROUP BY smh.map_id
@@ -200,16 +205,16 @@ SELECT map, id FROM maps WHERE map in {}
 `;
       const result: Array<MapHourResult> = [];
       const mapHoursQuery = db.query<
-        { ip: string; map: string; total_hours: number },
+        { map: string; total_hours: number },
         string[]
       >(mapHoursQueryStr);
 
-      for (const ip of ips) {
-        let ipResult: MapHourResult = [];
-        for (const row of mapHoursQuery.iterate(ip)) {
-          ipResult.push([row.map, row.total_hours]);
+      for (const steamid of steamids) {
+        let steamidResult: MapHourResult = [];
+        for (const row of mapHoursQuery.iterate(steamid)) {
+          steamidResult.push([row.map, row.total_hours]);
         }
-        result.push(ipResult);
+        result.push(steamidResult);
       }
 
       return result;
@@ -220,30 +225,30 @@ SELECT map, id FROM maps WHERE map in {}
   );
 
   type PlayerCountResult = Array<{ player_count: number; timestamp: number }>;
-  const playerCount = new DataLoader<string, PlayerCountResult>(
-    async function queryServerDetails(ips) {
+  const playerCount = new DataLoader<SteamId, PlayerCountResult>(
+    async function queryServerDetails(steamids) {
       const playerCountQueryStr = `
-SELECT s.ip, 
+SELECT s.steamid,
        MAX(sp.player_count) player_count,
        sp.timestamp
 FROM server_players sp
 INNER JOIN servers s ON s.id = sp.server_id
-WHERE s.ip IN {}
+WHERE s.steamid IN {}
 AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
 AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
 GROUP BY sp.server_id, sp.timestamp
-ORDER BY s.ip, sp.timestamp
+ORDER BY s.steamid, sp.timestamp
 `;
       const playerCounts = db.prepare<
-        { ip: string; player_count: number; timestamp: number },
+        { steamid: string; player_count: number; timestamp: number },
         string[]
-      >(buildQueryBindings(playerCountQueryStr, ips.length, 1));
+      >(buildQueryBindings(playerCountQueryStr, steamids.length, 1));
 
       const result: Record<string, PlayerCountResult> = Object.fromEntries(
-        ips.map((ip) => [ip, []]),
+        steamids.map((steamid) => [steamid, []]),
       );
-      for (const playerCount of playerCounts.iterate(...ips)) {
-        result[playerCount.ip].push({
+      for (const playerCount of playerCounts.iterate(...steamids)) {
+        result[playerCount.steamid].push({
           player_count: playerCount.player_count,
           timestamp: playerCount.timestamp,
         });
@@ -263,10 +268,11 @@ ORDER BY s.ip, sp.timestamp
     raw_hours: number;
     timestamp: number;
   }>;
-  const playerCountWithMaps = new DataLoader<string, PlayerCountResult>(
-    async function queryServerDetails(ips) {
+  const playerCountWithMaps = new DataLoader<SteamId, PlayerCountResult>(
+    async function queryServerDetails(steamids) {
       const playerCountQueryStr = `
-SELECT s.ip,
+SELECT s.steamid,
+       s.steamid,
        m.map,
        sp.player_count,
        ROUND(sp.player_hours, 3) player_hours,
@@ -275,21 +281,21 @@ SELECT s.ip,
 FROM server_players sp
 INNER JOIN servers s ON s.id = sp.server_id
 INNER JOIN maps m on m.id = sp.map_id
-WHERE s.ip in {}
+WHERE s.steamid in {}
 AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
 AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
-ORDER BY s.ip, sp.timestamp
+ORDER BY s.steamid, sp.timestamp
 `;
       const playerCounts = db.prepare<
-        PlayerCountWithMapsResult[number] & { ip: string },
+        PlayerCountWithMapsResult[number] & { steamid: string },
         string[]
-      >(buildQueryBindings(playerCountQueryStr, ips.length, 1));
+      >(buildQueryBindings(playerCountQueryStr, steamids.length, 1));
 
       const result: Record<string, PlayerCountWithMapsResult> =
-        Object.fromEntries(ips.map((ip) => [ip, []]));
-      for (const playerCount of playerCounts.iterate(...ips)) {
-        const { ip, ...rest } = playerCount;
-        result[ip].push(rest);
+        Object.fromEntries(steamids.map((steamid) => [steamid, []]));
+      for (const playerCount of playerCounts.iterate(...steamids)) {
+        const { steamid, ...rest } = playerCount;
+        result[steamid].push(rest);
       }
 
       return Object.values(result);
@@ -304,29 +310,29 @@ ORDER BY s.ip, sp.timestamp
     date: string;
     hours: number;
   }
-  const serverMapHours = new DataLoader<string, ServerMapHours[]>(
-    async (ips) => {
+  const serverMapHours = new DataLoader<SteamId, ServerMapHours[]>(
+    async (steamids) => {
       const serverMapHoursQueryStr = `
-SELECT s.ip,
+SELECT s.steamid,
        m.map,
        smh.hours,
        smh.date
 FROM servers s
 INNER JOIN server_map_hours smh on smh.server_id = s.id
 INNER JOIN maps m ON m.id = smh.map_id
-WHERE s.ip in ({})
+WHERE s.steamid in ({})
 AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
 AND smh.date >= date('now', '-28 days')
-ORDER BY s.ip, smh.date ASC
+ORDER BY s.steamid, smh.date ASC
 `;
       const serverMapHoursQuery = db.query<
-        ServerMapHours & { ip: string },
+        ServerMapHours & { steamid: string },
         string[]
-      >(buildQueryBindings(serverMapHoursQueryStr, ips.length, 1));
+      >(buildQueryBindings(serverMapHoursQueryStr, steamids.length, 1));
 
       const result = new Map<string, ServerMapHours[]>();
-      for (const record of serverMapHoursQuery.all(...ips)) {
-        mapUpsert(result, record.ip, {
+      for (const record of serverMapHoursQuery.all(...steamids)) {
+        mapUpsert(result, record.steamid, {
           insert() {
             return [record];
           },
@@ -336,33 +342,38 @@ ORDER BY s.ip, smh.date ASC
           },
         });
       }
-      return ips.map((ip) => result.get(ip) ?? []);
+      return steamids.map((steamid) => result.get(steamid) ?? []);
     },
   );
 
-  const firstRecordedDate = new DataLoader<string, number>(async (ips) => {
-    const firstRecordedDateQueryStr = `
-SELECT s.ip,
+  const firstRecordedDate = new DataLoader<SteamId, number>(
+    async (steamids) => {
+      const firstRecordedDateQueryStr = `
+SELECT s.steamid,
        MIN(sp.timestamp) AS first_timestamp
 FROM server_players sp
 INNER JOIN servers s on s.id = sp.server_id
-WHERE s.ip in ({})
+WHERE s.steamid in ({})
 GROUP BY sp.server_id
 ORDER BY sp.server_id;
 `;
-    const query = db.query<{ ip: string; first_timestamp: number }, string[]>(
-      buildQueryBindings(firstRecordedDateQueryStr, ips.length, 1),
-    );
+      const query = db.query<
+        { steamid: string; first_timestamp: number },
+        string[]
+      >(buildQueryBindings(firstRecordedDateQueryStr, steamids.length, 1));
 
-    const mapping = new Map<string, number>();
-    for (const { ip, first_timestamp } of query.all(...ips)) {
-      mapping.set(ip, first_timestamp);
-    }
+      const mapping = new Map<string, number>();
+      for (const { steamid, first_timestamp } of query.all(...steamids)) {
+        mapping.set(steamid, first_timestamp);
+      }
 
-    return ips.map(
-      (ip) => mapping.get(ip) ?? new Error(`Could not find ip ${ip}`),
-    );
-  });
+      return steamids.map(
+        (steamid) =>
+          mapping.get(steamid) ??
+          new Error(`Could not find steamid ${steamid}`),
+      );
+    },
+  );
 
   interface Location {
     long: number;
@@ -376,6 +387,7 @@ ORDER BY sp.server_id;
       lat: number;
     } | null
   >(
+    // NEEDS TO BE ip
     async function queryServerLocations(ips) {
       const map = new Map<string, Location>();
       const queryStr = `
@@ -429,13 +441,13 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     async (ips) => {
       const queryStr = `
     SELECT
-      ip, name, keyword, map, visibility, maxPlayers, region
+      ip, steamid, name, keyword, map, visibility, maxPlayers, region
     FROM servers s 
     LEFT JOIN maps m on m.id = s.map_id
     WHERE ip in ({})`;
       type Result = Pick<
         ServerRow,
-        "ip" | "name" | "keyword" | "visiblity" | "maxPlayers" | "region"
+        "ip" | "steamid" | "name" | "keyword" | "visiblity" | "maxPlayers" | "region"
       > & { map?: string };
       const map = new Map<string, Result>();
       const serverLocationsPromise = serverLocations.loadMany(
@@ -461,7 +473,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
           ...server,
           maxPlayers: server.maxPlayers ?? undefined,
           server: server.ip,
-          regions: server.region,
+          steamid: server.steamid ?? undefined,
           geoip:
             geoip instanceof Error || geoip == null
               ? null
@@ -537,6 +549,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
 
   return {
     serverId,
+    serverIdByIp,
     mapId,
     mapHours,
     playerCount,
@@ -589,6 +602,7 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
       for (const row of rows) {
         const typed: UnhydratedServerInfo = row as any;
         typed.server = row.ip;
+        typed.steamid = row.steamid ?? undefined;
         typed.keywords = row.keyword;
       }
 
@@ -614,6 +628,7 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
     async allServers() {
       const queryStr = `
       SELECT s.ip,
+             s.steamid,
              s.name,
              s.keyword as keywords,
              s.region,
@@ -639,6 +654,7 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
       const query = db.query<
         {
           ip: string;
+          steamid: string | null;
           name: string;
           keywords: string;
           region: number;
@@ -656,11 +672,13 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
         Map<string, UnhydratedServerInfo>
       >();
       const ipMapping = new Map<string, UnhydratedServerInfo>();
+      const steamidMapping = new Map<string, UnhydratedServerInfo>();
       const ips: string[] = [];
 
       for (const row of query.iterate()) {
         const server = {
           ip: row.ip,
+          steamid: row.steamid ?? undefined,
           server: row.ip,
           name: row.name,
           map: row.map,
@@ -675,6 +693,9 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
         };
         ips.push(row.ip);
         ipMapping.set(row.ip, server);
+        if (row.steamid) {
+          steamidMapping.set(row.steamid, server);
+        }
         mapUpsert(reasonMapping, row.reason, {
           insert() {
             return new Map([[server.ip, server]]);
@@ -699,7 +720,7 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
         }
       }
 
-      return { reasonMapping, ipMapping };
+      return { reasonMapping, ipMapping, steamidMapping };
     },
   };
 });
@@ -710,6 +731,39 @@ export const buildUpdaterService = memoize(function buildUpdaterService(
 ) {
   const dataloaders = buildDataloaders(db);
   const CHUNKED = 100;
+  const isValidMap = (map: unknown): map is string =>
+    typeof map === "string" && map.length > 0;
+
+  const loadMapIdsForServers = async (servers: HydratedServerInfo[]) => {
+    const maps = servers.map((server) =>
+      isValidMap(server.map) ? server.map : null,
+    );
+    const validMaps = maps.filter((map): map is string => map != null);
+    if (validMaps.length) {
+      upsertMaps(validMaps);
+    }
+
+    const loadedMapIds = validMaps.length
+      ? await dataloaders.mapId.loadMany(validMaps)
+      : [];
+    let loadedMapIdIndex = 0;
+
+    return maps.map((map) => {
+      if (map == null) {
+        return new Error("Missing map");
+      }
+      const mapId = loadedMapIds[loadedMapIdIndex];
+      loadedMapIdIndex += 1;
+      return mapId;
+    });
+  };
+
+  const resolveServerId = async (server: HydratedServerInfo) => {
+    if (server.steamid) {
+      return dataloaders.serverId.load(server.steamid as SteamId);
+    }
+    return dataloaders.serverIdByIp.load(server.ip);
+  };
   const upsertMaps = (maps: string[]) => {
     db.transaction(() => {
       const insertQueryStr = `
@@ -727,24 +781,56 @@ VALUES {}
   };
   return {
     async updateServers(servers: HydratedServerInfo[]) {
-      upsertMaps(servers.map((server) => server.map));
-      const mapIds = await dataloaders.mapId.loadMany(
-        servers.map((server) => server.map),
-      );
-      const values = servers.map((server, i) => [
-        server.server,
-        server.name,
-        server.keywords ?? "",
-        Number(server.region),
-        mapIds[i] instanceof Error ? null : mapIds[i],
-        server.visibility,
-        server.maxPlayers,
-      ]);
+      const mapIds = await loadMapIdsForServers(servers);
+      const valuesWithSteamId: Array<(string | number | null)[]> = [];
+      const valuesForIpBackfill: Array<(string | number | null)[]> = [];
+      const steamids = servers
+        .map((server) => server.steamid)
+        .filter((steamid): steamid is string => !!steamid);
 
-      const queryStr = `
-INSERT INTO servers (ip, name, keyword, region, map_id, visibility, maxPlayers)
+      let existingSteamids = new Set<string>();
+      if (steamids.length) {
+        const queryStr = `
+SELECT steamid FROM servers WHERE steamid in {}
+`;
+        for (const chunked of chunk(steamids, 500)) {
+          const query = db.prepare<{ steamid: string }, string[]>(
+            buildQueryBindings(queryStr, chunked.length, 1),
+          );
+          for (const row of query.iterate(...chunked)) {
+            existingSteamids.add(row.steamid);
+          }
+        }
+      }
+
+      for (let i = 0; i < servers.length; i++) {
+        const server = servers[i];
+        if (!server.steamid) {
+          continue;
+        }
+        const mapId = mapIds[i];
+        const row: Array<string | number | null> = [
+          server.server,
+          server.steamid,
+          server.name,
+          server.keywords ?? "",
+          Number(server.region),
+          mapId instanceof Error ? null : mapId,
+          server.visibility,
+          server.maxPlayers,
+        ];
+        if (existingSteamids.has(server.steamid)) {
+          valuesWithSteamId.push(row);
+        } else {
+          valuesForIpBackfill.push(row);
+        }
+      }
+
+      const queryBySteamId = `
+INSERT INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers)
 VALUES {}
-ON CONFLICT(ip) DO UPDATE SET
+ON CONFLICT(steamid) DO UPDATE SET
+    ip = excluded.ip,
     name = excluded.name,
     keyword = excluded.keyword,
     region = excluded.region,
@@ -752,14 +838,57 @@ ON CONFLICT(ip) DO UPDATE SET
     visibility = excluded.visibility,
     maxPlayers = excluded.maxPlayers;
 `;
-      for (const chunked of chunk(values, CHUNKED / 2)) {
-        db.transaction(() => {
-          const prepared = db.prepare(
-            buildQueryBindings(queryStr, 7, chunked.length),
-          );
-          prepared.run(...chunked.flat());
-          resetSequenceId(db, "servers");
-        })();
+      if (valuesWithSteamId.length) {
+        for (const chunked of chunk(valuesWithSteamId, CHUNKED / 2)) {
+          db.transaction(() => {
+            const prepared = db.prepare(
+              buildQueryBindings(queryBySteamId, 8, chunked.length),
+            );
+            prepared.run(...chunked.flat());
+            resetSequenceId(db, "servers");
+          })();
+        }
+      }
+
+      const backfillByIpWhenNull = db.prepare(`
+UPDATE servers
+SET steamid = ?,
+    name = ?,
+    keyword = ?,
+    region = ?,
+    map_id = ?,
+    visibility = ?,
+    maxPlayers = ?
+WHERE ip = ?
+  AND steamid IS NULL;
+`);
+      const queryInsertBySteamId = `
+INSERT OR IGNORE INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers)
+VALUES {}
+`;
+      if (valuesForIpBackfill.length) {
+        for (const chunked of chunk(valuesForIpBackfill, CHUNKED / 2)) {
+          db.transaction(() => {
+            for (const row of chunked) {
+              backfillByIpWhenNull.run(
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                row[5],
+                row[6],
+                row[7],
+                row[0],
+              );
+            }
+
+            const prepared = db.prepare(
+              buildQueryBindings(queryInsertBySteamId, 8, chunked.length),
+            );
+            prepared.run(...chunked.flat());
+            resetSequenceId(db, "servers");
+          })();
+        }
       }
     },
     async updateServerPlayers(
@@ -767,10 +896,9 @@ ON CONFLICT(ip) DO UPDATE SET
       seconds: number,
       queryTime: Date,
     ) {
-      upsertMaps(servers.map((server) => server.map));
       const [serverIds, mapIds] = await Promise.all([
-        dataloaders.serverId.loadMany(servers.map((server) => server.ip)),
-        dataloaders.mapId.loadMany(servers.map((server) => server.map)),
+        Promise.all(servers.map(resolveServerId)),
+        loadMapIdsForServers(servers),
       ]);
 
       const hours = seconds / 60 / 60;
@@ -785,9 +913,13 @@ ON CONFLICT(ip) DO UPDATE SET
           hours * (server.players - server.bots),
           hours,
         ])
-        .filter((id): id is number[] => {
-          if (id instanceof Error) {
-            console.error("updateServerPlayers", id);
+        .filter((info): info is number[] => {
+          if (info[0] instanceof Error) {
+            console.error("updateServerPlayers", info[0]);
+            return false;
+          }
+          if (info[1] instanceof Error) {
+            console.error("updateServerPlayers", info[1]);
             return false;
           }
           return true;
@@ -816,10 +948,9 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
       seconds: number,
       date: Date,
     ) {
-      upsertMaps(servers.map((server) => server.map));
       const [serverIds, mapIds] = await Promise.all([
-        dataloaders.serverId.loadMany(servers.map((server) => server.server)),
-        dataloaders.mapId.loadMany(servers.map((server) => server.map)),
+        Promise.all(servers.map(resolveServerId)),
+        loadMapIdsForServers(servers),
       ]);
 
       const hours = seconds / 60 / 60;
@@ -872,7 +1003,7 @@ VALUES (?, ?)
 ON CONFLICT(server_id) DO UPDATE SET
     reason = excluded.reason;
 `;
-      const serverId = await dataloaders.serverId.load(ip);
+      const serverId = await dataloaders.serverIdByIp.load(ip);
 
       const blacklist = db.query(queryStr);
       blacklist.run(serverId, reason);
@@ -881,18 +1012,31 @@ ON CONFLICT(server_id) DO UPDATE SET
       const queryStr = `DELETE FROM blacklist WHERE server_id = ?`;
 
       try {
-        const serverId = await dataloaders.serverId.load(ip);
+        const serverId = await dataloaders.serverIdByIp.load(ip);
         const query = await db.query(queryStr);
         query.run(serverId);
       } catch {}
     },
-    updateLastOnline(ips: string[]) {
+    updateLastOnlineByIp(ips: string[]) {
       const queryStr = `
 UPDATE servers 
 SET last_online = strftime('%s', 'now')
 WHERE ip IN {};
 `;
       for (const chunked of chunk(ips, 500)) {
+        const query = db.prepare(
+          buildQueryBindings(queryStr, chunked.length, 1),
+        );
+        query.run(...chunked);
+      }
+    },
+    updateLastOnlineBySteamId(steamids: string[]) {
+      const queryStr = `
+UPDATE servers 
+SET last_online = strftime('%s', 'now')
+WHERE steamid IN {};
+`;
+      for (const chunked of chunk(steamids, 500)) {
         const query = db.prepare(
           buildQueryBindings(queryStr, chunked.length, 1),
         );

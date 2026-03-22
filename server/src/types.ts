@@ -2,6 +2,7 @@ import { REGIONS } from "steam-server-query";
 
 export interface UnhydratedServerInfo {
   ip: string;
+  steamid?: string;
   server: string;
   name: string;
   map?: string;
@@ -19,6 +20,7 @@ export interface UnhydratedServerInfo {
 
 export interface HydratedServerInfo {
   ip: string;
+  steamid: string;
   server: string;
   name: string;
   map: string;
@@ -54,6 +56,7 @@ export interface SteamWebApiServerInfo {
 
   // my custom stuff
   geoip: [number, number] | null;
+  visibility?: 0 | 1;
 }
 
 export function steamWebApiServerInfoToLegacy(
@@ -62,6 +65,7 @@ export function steamWebApiServerInfoToLegacy(
   return servers.map(
     (server): HydratedServerInfo => ({
       ip: server.addr,
+      steamid: server.steamid,
       server: server.addr,
       name: server.name,
       map: server.map,
@@ -70,10 +74,13 @@ export function steamWebApiServerInfoToLegacy(
       bots: server.bots,
       players: server.players + server.bots,
       maxPlayers: server.max_players,
-      visibility: 0,
+      visibility: server.visibility ?? 0,
       geoip: server.geoip,
     }),
   );
 }
 
 export type ServerInfo = UnhydratedServerInfo | HydratedServerInfo;
+
+export type Brand<T, B> = T & { __brand: B };
+export type SteamId = Brand<string, "steamid">;

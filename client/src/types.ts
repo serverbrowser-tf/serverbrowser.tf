@@ -13,6 +13,7 @@ export enum REGIONS {
 
 interface HydratedServerInfo {
   ip: string;
+  steamid?: string;
   server: string;
   name: string;
   map: string;
@@ -30,6 +31,7 @@ interface HydratedServerInfo {
 
 interface UnhydratedServerInfo {
   ip: string;
+  steamid?: string;
   server: string;
   name: string;
   map?: undefined;

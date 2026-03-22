@@ -16,15 +16,21 @@ export const BanModal = ({ serverToBan }: BanModalProps) => {
     const map = serverToBan.map?.toLowerCase() ?? "";
     const [prefix] = map.split("_");
     const name = serverToBan.name.toLowerCase();
+    const keywords = serverToBan.keywords || "";
 
-    if (["achievement", "trade", "idle"].includes(prefix)) {
+    if (
+      ["achievement", "trade", "idle"].some(
+        (key) => prefix.includes(key) || keywords.includes(key),
+      )
+    ) {
       return "social";
     }
     if (
       prefix === "mge" ||
       name.includes("soapdm") ||
       prefix === "dm" ||
-      name.includes("duel")
+      name.includes("duel") ||
+      keywords.includes("soapdm")
     ) {
       return "dm";
     }
