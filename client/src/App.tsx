@@ -664,7 +664,7 @@ function App() {
     }
     const now = new Date();
     const isAprilFools = now.getMonth() === 3 && now.getDate() === 1;
-    if (isAprilFools || true) {
+    if (isAprilFools) {
       const index = copy.findIndex((value) => value.key === "players");
       assert(index >= 0, "Someone messed up the column defs...");
       copy.splice(index + 1, 0, {

@@ -198,7 +198,7 @@ SELECT map, id FROM maps WHERE map in {}
     JOIN server_map_hours smh ON s.id = smh.server_id
     JOIN maps m ON m.id = smh.map_id
     WHERE s.steamid = ?
-    AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
+    AND s.last_online >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
     AND smh.date >= date('now', '-28 days')
     GROUP BY smh.map_id
     ORDER BY total_hours DESC
@@ -234,8 +234,8 @@ SELECT s.steamid,
 FROM server_players sp
 INNER JOIN servers s ON s.id = sp.server_id
 WHERE s.steamid IN {}
-AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
-AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+AND s.last_online >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
 GROUP BY sp.server_id, sp.timestamp
 ORDER BY s.steamid, sp.timestamp
 `;
@@ -282,8 +282,8 @@ FROM server_players sp
 INNER JOIN servers s ON s.id = sp.server_id
 INNER JOIN maps m on m.id = sp.map_id
 WHERE s.steamid in {}
-AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
-AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+AND s.last_online >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
 ORDER BY s.steamid, sp.timestamp
 `;
       const playerCounts = db.prepare<
@@ -321,7 +321,7 @@ FROM servers s
 INNER JOIN server_map_hours smh on smh.server_id = s.id
 INNER JOIN maps m ON m.id = smh.map_id
 WHERE s.steamid in ({})
-AND date(s.last_online, "unixepoch") >= date('now', '-28 days')
+AND s.last_online >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
 AND smh.date >= date('now', '-28 days')
 ORDER BY s.steamid, smh.date ASC
 `;
@@ -502,7 +502,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     FROM server_map_hours smh
     INNER JOIN servers s ON s.id = smh.server_id
     WHERE smh.map_id in ({})
-    AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
+    AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
     AND smh.date >= date('now', '-28 days')
     GROUP BY smh.map_id, smh.server_id
     ORDER BY ip asc
@@ -593,7 +593,7 @@ INNER JOIN (
     AND smh.id = latest.max_id
 LEFT JOIN maps m ON m.id = smh.map_id
 WHERE blacklist.server_id IS NULL
-AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
+AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
 ;
 `;
       const query = db.prepare<ServerRow & { hours: number }, []>(queryStr);
@@ -614,7 +614,7 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
       FROM server_map_hours smh
       INNER JOIN maps m ON m.id = smh.map_id
       INNER JOIN servers s on s.id = smh.server_id
-      WHERE date(s.last_online, "unixepoch") >= date('now', '-3 days')
+      WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
       AND smh.date >= date('now', '-28 days')
       GROUP BY smh.map_id
       ORDER BY map asc`;
@@ -644,10 +644,10 @@ AND date(s.last_online, "unixepoch") >= date('now', '-3 days')
         SELECT sp.server_id, (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
         FROM server_players sp
         WHERE sp.player_count >= 10
-        AND date(sp.timestamp, "unixepoch") >= date('now', '-28 days')
+        AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
         GROUP BY sp.server_id
       ) sa on sa.server_id = s.id
-      WHERE date(s.last_online, "unixepoch") >= date('now', '-3 days')
+      WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
       GROUP BY s.id
       `;
 
