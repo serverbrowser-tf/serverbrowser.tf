@@ -268,37 +268,43 @@ ORDER BY s.steamid, sp.timestamp
     raw_hours: number;
     timestamp: number;
   }>;
-  const playerCountWithMaps = new DataLoader<SteamId, PlayerCountResult>(
-    async function queryServerDetails(steamids) {
+  const playerCountWithMaps = new DataLoader<number, PlayerCountWithMapsResult>(
+    async function queryServerDetails(serverIds) {
       const playerCountQueryStr = `
-SELECT s.steamid,
-       s.steamid,
+SELECT sp.server_id,
        m.map,
        sp.player_count,
        ROUND(sp.player_hours, 3) player_hours,
        ROUND(sp.raw_hours, 3) raw_hours,
        sp.timestamp
 FROM server_players sp
-INNER JOIN servers s ON s.id = sp.server_id
 INNER JOIN maps m on m.id = sp.map_id
-WHERE s.steamid in {}
-AND s.last_online >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+WHERE sp.server_id in {}
 AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
-ORDER BY s.steamid, sp.timestamp
+ORDER BY sp.server_id, sp.timestamp
 `;
       const playerCounts = db.prepare<
-        PlayerCountWithMapsResult[number] & { steamid: string },
-        string[]
-      >(buildQueryBindings(playerCountQueryStr, steamids.length, 1));
+        PlayerCountWithMapsResult[number] & { server_id: number },
+        number[]
+      >(
+        buildQueryBindings(
+          playerCountQueryStr,
+          serverIds.length,
+          1,
+        ),
+      );
 
-      const result: Record<string, PlayerCountWithMapsResult> =
-        Object.fromEntries(steamids.map((steamid) => [steamid, []]));
-      for (const playerCount of playerCounts.iterate(...steamids)) {
-        const { steamid, ...rest } = playerCount;
-        result[steamid].push(rest);
+      const result = new Map<number, PlayerCountWithMapsResult>();
+      for (const serverId of serverIds) {
+        result.set(serverId, []);
       }
 
-      return Object.values(result);
+      for (const playerCount of playerCounts.iterate(...serverIds)) {
+        const { server_id, ...rest } = playerCount;
+        result.get(server_id)?.push(rest);
+      }
+
+      return serverIds.map((serverId) => result.get(serverId) ?? []);
     },
     {
       cacheMap: new QuickLRU({ maxSize: 100, maxAge: CACHE_MAX_AGE }),

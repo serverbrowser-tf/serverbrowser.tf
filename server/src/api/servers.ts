@@ -267,15 +267,15 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
-    const steamid = await resolveSteamId(req.params.ip);
-    if (!steamid) {
+    const serverId = await dataloaders.serverIdByIp.load(req.params.ip);
+    if (serverId instanceof Error) {
       res.status(404).end();
       return;
     }
 
     const name = getHydratedServerByIp(req.params.ip)?.name ?? "";
     res.startTime("playerCounts", "");
-    const playerCounts = await dataloaders.playerCountWithMaps.load(steamid);
+    const playerCounts = await dataloaders.playerCountWithMaps.load(serverId);
     res.endTime("playerCounts");
     res.json({
       name,
