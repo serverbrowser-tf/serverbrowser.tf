@@ -267,7 +267,7 @@ export const officialMaps = new Set([
   "vsh_outburst",
   "koth_toxic",
 
-  // smissmas
+  // smissmas 2024
   "ctf_snowfall_final",
   "pd_snowville_event",
   "pl_wutville_event",
@@ -298,6 +298,21 @@ export const officialMaps = new Set([
   "cp_fulgur",
   "koth_mannhole",
   "ctf_pressure",
+
+  // halloween 2025
+  "ctf_doublecross_event",
+  "cp_cowerhouse",
+  "arena_afterlife",
+  "koth_dusker",
+  "htf_marshlands",
+
+  // smissmas 2025
+  "ctf_sidewinder",
+  "cppl_gavle",
+  "plr_matterhorn",
+  "2koth_abbey",
+  "koth_winter_ridge",
+  "pd_nutcracker",
 ]);
 
 export const geoIpAtom = new Atom<[number, number] | null | undefined>(
