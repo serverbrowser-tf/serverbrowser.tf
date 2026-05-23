@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import { omit } from "lodash";
+import * as v from "valibot";
 
 import { buildDataloaders, db } from "../db";
 import { inferServerCategory } from "./inferCategory";
@@ -26,6 +27,15 @@ interface ServersJsonArchive {
   servers: Record<string, ServerInfo[]>;
 }
 
+const serversByCategoryArchiveSchema = v.record(
+  v.string(),
+  v.array(v.unknown()),
+);
+const wrappedServersJsonArchiveSchema = v.object({
+  lastSteamQueryAt: v.optional(v.number()),
+  servers: serversByCategoryArchiveSchema,
+});
+
 function cleanupString(str: string | undefined) {
   if (!str) {
     return "";
@@ -46,30 +56,42 @@ export async function loadInitialServersJson() {
   try {
     const file = await fs.readFile("./servers.json");
     const json = JSON.parse(file.toString("utf8"));
-    if (Array.isArray(json)) {
-      servers = {};
-      return;
-    }
-    if (
-      json &&
-      typeof json === "object" &&
-      "servers" in json &&
-      json.servers &&
-      typeof json.servers === "object" &&
-      !Array.isArray(json.servers)
-    ) {
-      const archive = json as ServersJsonArchive;
-      servers = archive.servers;
-      lastSteamQueryAt =
-        typeof archive.lastSteamQueryAt === "number"
-          ? archive.lastSteamQueryAt
-          : -1;
-      return;
-    }
-    servers = json;
+    const archive = parseServersJsonArchive(json);
+    servers = archive.servers;
+    lastSteamQueryAt = archive.lastSteamQueryAt;
   } catch {
     servers = {};
+    lastSteamQueryAt = -1;
   }
+}
+
+export function parseServersJsonArchive(input: unknown): {
+  lastSteamQueryAt: number;
+  servers: Record<string, ServerInfo[]>;
+} {
+  if (Array.isArray(input)) {
+    return { lastSteamQueryAt: -1, servers: {} };
+  }
+
+  if (input && typeof input === "object" && "servers" in input) {
+    const result = v.safeParse(wrappedServersJsonArchiveSchema, input);
+    if (!result.success) {
+      return { lastSteamQueryAt: -1, servers: {} };
+    }
+    return {
+      lastSteamQueryAt: result.output.lastSteamQueryAt ?? -1,
+      servers: result.output.servers as Record<string, ServerInfo[]>,
+    };
+  }
+
+  const result = v.safeParse(serversByCategoryArchiveSchema, input);
+  if (!result.success) {
+    return { lastSteamQueryAt: -1, servers: {} };
+  }
+  return {
+    lastSteamQueryAt: -1,
+    servers: result.output as Record<string, ServerInfo[]>,
+  };
 }
 
 export function getLastRequestTime() {

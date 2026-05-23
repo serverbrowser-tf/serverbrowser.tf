@@ -1,7 +1,17 @@
 import { NextFunction, Request, Response, Router } from "express";
+import * as v from "valibot";
 import "dotenv/config";
 import { sleep } from "../utils";
 import "cookie-parser";
+
+const loginBodySchema = v.object({
+  username: v.string(),
+  password: v.string(),
+});
+
+export function parseLoginBody(input: unknown) {
+  return v.safeParse(loginBodySchema, input);
+}
 
 export function isLoggedIn(req: Request) {
   return req.cookies.authorizedkey === process.env.ADMIN_PASSWORD;
@@ -23,8 +33,14 @@ export const isLoggedInMiddleware = (
 const router = Router();
 
 router.post("/api/login", (req, res) => {
+  const body = parseLoginBody(req.body);
+  if (!body.success) {
+    res.status(400).end();
+    return;
+  }
+
   const delay = sleep(100);
-  const { username, password } = req.body;
+  const { username, password } = body.output;
   if (username !== "hemorrhoids" || password !== process.env.ADMIN_PASSWORD) {
     console.error("Failed login", username, ": ", password);
     delay.then(() => {

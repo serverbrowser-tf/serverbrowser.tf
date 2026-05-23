@@ -1,8 +1,9 @@
 import { NextFunction, Request, Response, Router } from "express";
+import * as v from "valibot";
 
 import { buildDataloaders, buildUpdaterService, db } from "../db";
 import { ServerInfo } from "../types";
-import { assert, asyncify } from "../utils";
+import { asyncify } from "../utils";
 import {
   applyBan,
   dedupeServersBySteamId,
@@ -16,6 +17,89 @@ import {
 import { isLoggedIn, isLoggedInMiddleware } from "./login";
 
 const apiRouter = Router();
+
+type ParseResult<T> = { success: true; output: T } | { success: false };
+
+const banBodySchema = v.object({
+  ip: v.string(),
+  reason: v.string(),
+});
+
+const serverLookupQuerySchema = v.object({
+  ip: v.string(),
+});
+
+const queryNumberInputSchema = v.union([v.string(), v.number()]);
+
+const onlineServersQuerySchema = v.object({
+  category: v.optional(v.string()),
+  hasUsersPlaying: v.optional(queryNumberInputSchema),
+  region: v.optional(v.union([v.string(), v.array(v.string())])),
+});
+
+const mapLimitQuerySchema = v.object({
+  mapLimit: v.optional(queryNumberInputSchema),
+});
+
+export function parseBanBody(input: unknown) {
+  return v.safeParse(banBodySchema, input);
+}
+
+export function parseServerLookupQuery(
+  input: unknown,
+): ParseResult<{ ip: string }> {
+  const result = v.safeParse(serverLookupQuerySchema, input);
+  if (!result.success || result.output.ip === "") {
+    return { success: false };
+  }
+  return { success: true, output: result.output };
+}
+
+export function parseOnlineServersQuery(input: unknown): ParseResult<{
+  category?: string;
+  hasUsersPlaying: boolean;
+  regions?: number[];
+}> {
+  const result = v.safeParse(onlineServersQuerySchema, input);
+  if (!result.success) {
+    return { success: false };
+  }
+
+  const hasUsersPlayingValue = Number(result.output.hasUsersPlaying ?? "1");
+  if (!Number.isFinite(hasUsersPlayingValue)) {
+    return { success: false };
+  }
+
+  let regions: number[] | undefined;
+  if (result.output.region !== undefined) {
+    const regionInputs = Array.isArray(result.output.region)
+      ? result.output.region
+      : [result.output.region];
+    regions = regionInputs.map((region) => Number(region));
+    if (regions.some((region) => !Number.isFinite(region))) {
+      return { success: false };
+    }
+  }
+
+  return {
+    success: true,
+    output: {
+      category: result.output.category,
+      hasUsersPlaying: hasUsersPlayingValue !== 0,
+      regions,
+    },
+  };
+}
+
+export function parseMapLimitQuery(input: unknown, fallback = 10) {
+  const result = v.safeParse(mapLimitQuerySchema, input);
+  if (!result.success || result.output.mapLimit === undefined) {
+    return fallback;
+  }
+
+  const limit = Number(result.output.mapLimit);
+  return Number.isFinite(limit) ? limit : fallback;
+}
 
 const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const { id, nextQueueTime } = getCacheState();
@@ -40,24 +124,13 @@ const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
 };
 
 function getOnlineServersHandler(req: Request, res: Response) {
-  const category =
-    typeof req.query.category === "string" ? req.query.category : undefined;
-  const hasUsersPlaying = Number(req.query.hasUsersPlaying ?? "1") !== 0;
-  const regions =
-    "region" in req.query
-      ? (Array.isArray(req.query.region)
-          ? req.query.region
-          : [req.query.region]
-        ).map((region) => Number(region))
-      : undefined;
+  const query = parseOnlineServersQuery(req.query);
+  if (!query.success) {
+    res.status(400).end();
+    return;
+  }
 
-  res.status(200).json(
-    getOnlineServersFromStore({
-      category,
-      hasUsersPlaying,
-      regions,
-    }),
-  );
+  res.status(200).json(getOnlineServersFromStore(query.output));
 }
 
 apiRouter.get("/api/servers/all", cacheMiddleware, getOnlineServersHandler);
@@ -68,13 +141,14 @@ apiRouter.get(
   "/api/servers",
   cacheMiddleware,
   asyncify(async (req: Request, res: Response) => {
-    const dataloaders = buildDataloaders(db);
-    assert(typeof req.query.ip === "string", "Expected ip to be a string");
-    if (req.query.ip === "") {
+    const query = parseServerLookupQuery(req.query);
+    if (!query.success) {
       res.status(400).end();
       return;
     }
-    const ips = req.query.ip.split(",");
+
+    const dataloaders = buildDataloaders(db);
+    const ips = query.output.ip.split(",");
     res.startTime("db", "");
     const servers = (await dataloaders.servers.loadMany(ips)).filter(
       (server): server is Exclude<typeof server, Error> => {
@@ -105,8 +179,13 @@ apiRouter.post(
   "/api/ban",
   isLoggedInMiddleware,
   asyncify(async (req, res) => {
-    const ip: string = req.body.ip;
-    const reason: string = req.body.reason;
+    const body = parseBanBody(req.body);
+    if (!body.success) {
+      res.status(400).end();
+      return;
+    }
+
+    const { ip, reason } = body.output;
     const updater = buildUpdaterService(db);
     if (reason) {
       await updater.updateBlacklist(ip, reason);
@@ -169,10 +248,7 @@ apiRouter.get(
       res.status(404).end();
       return;
     }
-    let limit = req.query.mapLimit ? Number(req.query.mapLimit) : 10;
-    if (Number.isNaN(limit)) {
-      limit = 10;
-    }
+    const limit = parseMapLimitQuery(req.query);
 
     if (isLoggedIn(req)) {
       res.startTime("maps", "");
@@ -183,7 +259,7 @@ apiRouter.get(
       res.endTime("playerCounts");
 
       res.json({
-        maps: Object.fromEntries(maps.slice(0, 10)),
+        maps: Object.fromEntries(maps.slice(0, limit)),
         playerCounts,
       });
     } else {
@@ -192,7 +268,7 @@ apiRouter.get(
         dataloaders.playerCount.load(steamid),
       ]);
       res.json({
-        maps: Object.fromEntries(maps.slice(0, 10)),
+        maps: Object.fromEntries(maps.slice(0, limit)),
         playerCounts,
       });
     }
