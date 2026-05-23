@@ -1,5 +1,8 @@
-import fs from "fs/promises";
 import { SteamWebApiServerInfo } from "../types";
+import {
+  recordSteamServerBrowserFailure,
+  recordSteamServerBrowserSuccess,
+} from "../metrics";
 import fastpath from "./fastpath.json";
 
 const ipBan = new Set(fastpath.map((server) => server.addr));
@@ -29,19 +32,39 @@ function filterHidden(servers: SteamWebApiServerInfo[]) {
 
 const commonFilters = "\\appid\\440\\secure\\1\\gamedir\\tf\\ngametype\\valve";
 
+async function fetchSteamServers(
+  url: URL,
+): Promise<SteamWebApiServerInfo[]> {
+  const timeout = AbortSignal.timeout(180_000);
+  const response = await fetch(url.toString(), {
+    signal: timeout,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Steam server browser returned HTTP ${response.status}`);
+  }
+
+  const json = (await response.json()) as {
+    response?: { servers?: unknown };
+  };
+  const servers = json.response?.servers;
+  if (!Array.isArray(servers)) {
+    throw new Error("Steam server browser response did not include servers");
+  }
+
+  recordSteamServerBrowserSuccess();
+  return servers;
+}
+
 export async function getAllServers() {
   try {
-    const timeout = AbortSignal.timeout(180_000);
     const url = getServerListUrl();
     url.searchParams.set("filter", commonFilters);
 
-    const response = await fetch(url.toString(), {
-      signal: timeout,
-    });
-    const json = await response.json();
-    const servers: SteamWebApiServerInfo[] = json.response.servers;
+    const servers = await fetchSteamServers(url);
     return filterHidden(servers);
   } catch (e) {
+    recordSteamServerBrowserFailure(e);
     console.error(e);
   }
   return [];
@@ -49,18 +72,13 @@ export async function getAllServers() {
 
 export async function getListOfServers(): Promise<SteamWebApiServerInfo[]> {
   try {
-    const timeout = AbortSignal.timeout(180_000);
     const url = getServerListUrl();
     url.searchParams.set("filter", `${commonFilters}\\empty\\1`);
 
-    const response = await fetch(url.toString(), {
-      signal: timeout,
-    });
-    const json = await response.json();
-
-    const servers: SteamWebApiServerInfo[] = json.response.servers;
+    const servers = await fetchSteamServers(url);
     return filterHidden(servers);
   } catch (e) {
+    recordSteamServerBrowserFailure(e);
     console.error(e);
   }
   return [];

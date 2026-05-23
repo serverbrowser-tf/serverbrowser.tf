@@ -7,6 +7,7 @@ import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
 import { getDb, scheduleDbOptimize } from "./db";
+import { recordExpressResponse } from "./metrics";
 import { scheduleServerObservationArchives } from "./observations";
 import { startServerRefreshLoop } from "./servers/refresh";
 import { loadInitialServersJson } from "./servers/store";
@@ -26,6 +27,12 @@ app.use(
     enabled: (req) => isLoggedIn(req),
   }),
 );
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    recordExpressResponse(req.method, req.path, res.statusCode);
+  });
+  next();
+});
 
 app.use(maps);
 app.use(login);

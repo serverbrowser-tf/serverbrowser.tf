@@ -1,7 +1,14 @@
 import { Router } from "express";
 import geoIp2 from "geoip-lite2";
 
+import { getHealthPayload } from "../health";
+
 const router = Router();
+
+router.get("/api/health", (req, res) => {
+  const health = getHealthPayload();
+  res.status(health.ok ? 200 : 503).json(health);
+});
 
 router.get("/api/location", (req, res) => {
   const forwardedIp = req.headers["x-forwarded-ip"];
