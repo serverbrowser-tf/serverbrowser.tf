@@ -1,11 +1,16 @@
 import { Database } from "bun:sqlite";
 import DataLoader from "dataloader";
-import fs from "fs/promises";
+import fs from "fs";
 import geoIp2 from "geoip-lite2";
 import { chunk, memoize } from "lodash";
 import QuickLRU from "quick-lru";
 
-import { HydratedServerInfo, ServerInfo, SteamId, UnhydratedServerInfo } from "./types";
+import {
+  HydratedServerInfo,
+  ServerInfo,
+  SteamId,
+  UnhydratedServerInfo,
+} from "./types";
 import { mapUpsert, scheduleDaily } from "./utils";
 
 interface ServerRow {
@@ -21,13 +26,13 @@ interface ServerRow {
 
 const CACHE_MAX_AGE = 1 * 60 * 1000;
 
-async function migrate(db: Database) {
+function migrate(db: Database) {
   const { user_version: dbVersion } = db
     .prepare("PRAGMA user_version")
     .get() as { user_version: number };
-  const migrationFiles = (await fs.readdir("./migrations")).filter((el) =>
-    el.endsWith(".sql"),
-  );
+  const migrationFiles = fs
+    .readdirSync("./migrations")
+    .filter((el) => el.endsWith(".sql"));
 
   if (migrationFiles.length === dbVersion) {
     return;
@@ -39,16 +44,14 @@ async function migrate(db: Database) {
 
   migrationFiles.sort();
   for (let i = dbVersion; i < migrationFiles.length; i++) {
-    const file = (
-      await fs.readFile(`./migrations/${migrationFiles[i]}`)
-    ).toString("utf8");
+    const file = fs.readFileSync(`./migrations/${migrationFiles[i]}`, "utf8");
 
     runMigration(file);
   }
   db.run(`PRAGMA user_version = ${Math.max(dbVersion, migrationFiles.length)}`);
 }
 
-export var db: Database = getDb();
+export var db: Database;
 export function getDb(): Database {
   if (db == null) {
     db = new Database("./database.sqlite", {
@@ -286,13 +289,7 @@ ORDER BY sp.server_id, sp.timestamp
       const playerCounts = db.prepare<
         PlayerCountWithMapsResult[number] & { server_id: number },
         number[]
-      >(
-        buildQueryBindings(
-          playerCountQueryStr,
-          serverIds.length,
-          1,
-        ),
-      );
+      >(buildQueryBindings(playerCountQueryStr, serverIds.length, 1));
 
       const result = new Map<number, PlayerCountWithMapsResult>();
       for (const serverId of serverIds) {
@@ -453,7 +450,13 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     WHERE ip in ({})`;
       type Result = Pick<
         ServerRow,
-        "ip" | "steamid" | "name" | "keyword" | "visiblity" | "maxPlayers" | "region"
+        | "ip"
+        | "steamid"
+        | "name"
+        | "keyword"
+        | "visiblity"
+        | "maxPlayers"
+        | "region"
       > & { map?: string };
       const map = new Map<string, Result>();
       const serverLocationsPromise = serverLocations.loadMany(
@@ -946,6 +949,51 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
           );
           prepared.run(...chunked.flat());
           resetSequenceId(db, "server_players");
+        })();
+      }
+    },
+    async updateServerObservations(
+      servers: HydratedServerInfo[],
+      observedAt: Date,
+      source = "community",
+    ) {
+      const [serverIds, mapIds] = await Promise.all([
+        Promise.all(servers.map(resolveServerId)),
+        loadMapIdsForServers(servers),
+      ]);
+
+      const observedAtUnix = Math.floor(Number(observedAt) / 1000);
+      const values = servers
+        .map((server, i) => [
+          serverIds[i],
+          mapIds[i],
+          observedAtUnix,
+          server.players - server.bots,
+          source,
+        ])
+        .filter((info): info is Array<number | string> => {
+          if (info[0] instanceof Error) {
+            console.error("updateServerObservations", info[0]);
+            return false;
+          }
+          if (info[1] instanceof Error) {
+            console.error("updateServerObservations", info[1]);
+            return false;
+          }
+          return true;
+        });
+
+      const queryStr = `
+INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
+VALUES {}
+`;
+      for (const chunked of chunk(values, Math.floor(400 / 5))) {
+        db.transaction(() => {
+          const prepared = db.prepare(
+            buildQueryBindings(queryStr, 5, chunked.length),
+          );
+          prepared.run(...chunked.flat());
+          resetSequenceId(db, "server_observations");
         })();
       }
     },

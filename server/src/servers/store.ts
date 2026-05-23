@@ -13,12 +13,18 @@ import { mapUpsert } from "../utils";
 
 let id = Math.random().toString(36).substring(2);
 let lastRequestTime = -1;
+let lastSteamQueryAt = -1;
 let nextQueueTime = -1;
 let blacklist = new Map<string, string>();
 let allServersByBlacklist = new Map<string | null, Map<string, ServerInfo>>();
 let allServersByIp = new Map<string, ServerInfo>();
 let allServersBySteamId = new Map<string, ServerInfo>();
 let servers: Record<string, ServerInfo[]> = {};
+
+interface ServersJsonArchive {
+  lastSteamQueryAt?: number;
+  servers: Record<string, ServerInfo[]>;
+}
 
 function cleanupString(str: string | undefined) {
   if (!str) {
@@ -44,6 +50,22 @@ export async function loadInitialServersJson() {
       servers = {};
       return;
     }
+    if (
+      json &&
+      typeof json === "object" &&
+      "servers" in json &&
+      json.servers &&
+      typeof json.servers === "object" &&
+      !Array.isArray(json.servers)
+    ) {
+      const archive = json as ServersJsonArchive;
+      servers = archive.servers;
+      lastSteamQueryAt =
+        typeof archive.lastSteamQueryAt === "number"
+          ? archive.lastSteamQueryAt
+          : -1;
+      return;
+    }
     servers = json;
   } catch {
     servers = {};
@@ -56,6 +78,14 @@ export function getLastRequestTime() {
 
 export function setLastRequestTime(time: number) {
   lastRequestTime = time;
+}
+
+export function getLastSteamQueryAt() {
+  return lastSteamQueryAt;
+}
+
+export function setLastSteamQueryAt(time: number) {
+  lastSteamQueryAt = time;
 }
 
 export function setBlacklist(nextBlacklist: Map<string, string>) {
@@ -150,7 +180,13 @@ function rebuildServerBuckets() {
 }
 
 export async function persistServersJson() {
-  await fs.writeFile("./servers.json", JSON.stringify(servers));
+  await fs.writeFile(
+    "./servers.json",
+    JSON.stringify({
+      lastSteamQueryAt,
+      servers,
+    } satisfies ServersJsonArchive),
+  );
 }
 
 export function markRefreshScheduled(delayMs: number) {

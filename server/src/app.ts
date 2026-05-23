@@ -6,14 +6,17 @@ import login, { isLoggedIn } from "./api/login";
 import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
-import { scheduleDbOptimize } from "./db";
+import { getDb, scheduleDbOptimize } from "./db";
+import { scheduleServerObservationArchives } from "./observations";
 import { startServerRefreshLoop } from "./servers/refresh";
 import { loadInitialServersJson } from "./servers/store";
 
 const app = express();
 const PORT = 3030;
+const db = getDb();
 
 scheduleDbOptimize();
+scheduleServerObservationArchives(db);
 
 app.use(cookieParser());
 app.use(cors());

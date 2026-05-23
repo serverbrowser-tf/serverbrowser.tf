@@ -4,6 +4,7 @@ import { getAllServers, getListOfServers } from ".";
 import {
   bumpCacheVersion,
   clearMissingPlayerCounts,
+  getLastSteamQueryAt,
   getVisibilityByIp,
   getLastRequestTime,
   markRefreshScheduled,
@@ -12,9 +13,12 @@ import {
   replaceServerIndexes,
   setBlacklist,
   setLastRequestTime,
+  setLastSteamQueryAt,
 } from "./store";
+import { sleep } from "../utils";
 
 const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
+const refreshPeriodMs = 1000 * 60 * refreshPeriod;
 const visibilityRefreshPeriod = 1000 * 60 * 60;
 const visibilityQueryWorkers = 20;
 
@@ -80,7 +84,18 @@ async function refreshServersOnce(args: {
 }) {
   const { dataloaders, updater } = args;
   console.time("Refreshing servers");
-  const now = new Date();
+  let now = new Date();
+  const msUntilAllowedSteamQuery =
+    getLastSteamQueryAt() + refreshPeriodMs - Number(now);
+  if (msUntilAllowedSteamQuery > 0) {
+    markRefreshScheduled(msUntilAllowedSteamQuery);
+    await sleep(msUntilAllowedSteamQuery);
+    now = new Date();
+  }
+
+  setLastSteamQueryAt(Number(now));
+  await persistServersJson();
+
   const steamServers = await getListOfServers();
   console.log("Found", steamServers.length, "servers from web api");
 
@@ -107,6 +122,7 @@ async function refreshServersOnce(args: {
     steamServers.map((server) => server.steamid),
   );
   await updater.updateServers(legacyServers);
+  await updater.updateServerObservations(legacyServers, now, "community");
 
   const lastRequestTime = getLastRequestTime();
   if (lastRequestTime > 0) {
@@ -147,8 +163,7 @@ export async function startServerRefreshLoop() {
 
     await refreshServersOnce({ dataloaders, updater });
 
-    const timeToSleep = 1000 * 60 * refreshPeriod;
-    markRefreshScheduled(timeToSleep);
+    markRefreshScheduled(refreshPeriodMs);
 
     if (queriesAllServersThisLoop) {
       lastQueriedAllServers = Date.now();
@@ -160,6 +175,6 @@ export async function startServerRefreshLoop() {
       console.timeEnd("Querying all servers");
     }
 
-    await new Promise<void>((resolve) => setTimeout(resolve, timeToSleep));
+    await new Promise<void>((resolve) => setTimeout(resolve, refreshPeriodMs));
   }
 }
