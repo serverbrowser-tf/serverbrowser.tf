@@ -29,6 +29,7 @@ CREATE TABLE servers (
     last_online INTEGER,
     is_valve INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX idx_servers_is_valve ON servers(is_valve);
 CREATE TABLE server_players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id INTEGER NOT NULL,

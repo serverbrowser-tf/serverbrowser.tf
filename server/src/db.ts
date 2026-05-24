@@ -54,11 +54,20 @@ function migrate(db: Database) {
 }
 
 export var db: Database;
+
+function configureDb(db: Database) {
+  db.run("PRAGMA busy_timeout = 5000");
+  db.run("PRAGMA cache_size = -65536");
+  db.run("PRAGMA temp_store = MEMORY");
+  db.run("PRAGMA mmap_size = 268435456");
+}
+
 export function getDb(): Database {
   if (db == null) {
     db = new Database("./database.sqlite", {
       create: true,
     });
+    configureDb(db);
     migrate(db);
     db.run(`PRAGMA optimize=0x10002`);
   }
@@ -581,10 +590,12 @@ SELECT m.map,
        SUM(sp.player_count) player_count,
        ROUND(SUM(COALESCE(sp.player_hours, 0)), 3) player_hours,
        ROUND(SUM(COALESCE(sp.raw_hours, 0)), 3) raw_hours
-FROM server_players sp
-INNER JOIN servers s ON s.id = sp.server_id
-INNER JOIN maps m ON m.id = sp.map_id
+FROM servers s INDEXED BY idx_servers_is_valve
+CROSS JOIN server_players sp INDEXED BY idx_server_players_unique
+CROSS JOIN maps m
 WHERE s.is_valve = 1
+AND sp.server_id = s.id
+AND m.id = sp.map_id
 AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
 GROUP BY sp.map_id, sp.timestamp
 ORDER BY sp.timestamp, m.map
@@ -594,9 +605,10 @@ SELECT sp.timestamp,
        SUM(sp.player_count) player_count,
        ROUND(SUM(COALESCE(sp.player_hours, 0)), 3) player_hours,
        ROUND(SUM(COALESCE(sp.raw_hours, 0)), 3) raw_hours
-FROM server_players sp
-INNER JOIN servers s ON s.id = sp.server_id
+FROM servers s INDEXED BY idx_servers_is_valve
+CROSS JOIN server_players sp INDEXED BY idx_server_players_unique
 WHERE s.is_valve = 1
+AND sp.server_id = s.id
 AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
 GROUP BY sp.timestamp
 ORDER BY sp.timestamp
