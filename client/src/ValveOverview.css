@@ -1,0 +1,14 @@
+.valve-overview {
+  min-height: 260px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns:
+    minmax(260px, 1fr) minmax(320px, 1.4fr) minmax(260px, 1fr)
+    300px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.valve-overview > * {
+  min-width: 0;
+}

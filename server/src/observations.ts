@@ -212,7 +212,7 @@ export async function archiveServerObservations(args: {
       `
 SELECT so.id,
        so.observed_at,
-       so.source,
+       CASE WHEN s.is_valve = 1 THEN 'valve' ELSE 'community' END source,
        s.ip,
        s.name,
        s.steamid,
@@ -223,7 +223,7 @@ FROM server_observations so
 INNER JOIN servers s ON s.id = so.server_id
 LEFT JOIN maps m ON m.id = so.map_id
 WHERE so.observed_at < ?
-ORDER BY so.observed_at, so.id;
+ORDER BY s.steamid IS NULL, s.steamid, so.observed_at, so.id;
 `,
     )
     .all(cutoff);
@@ -244,7 +244,7 @@ ORDER BY so.observed_at, so.id;
   const files: string[] = [];
   let archivedRows = 0;
   for (const [week, weekRows] of byWeek) {
-    const filePath = path.join(archiveDir, `observations-${week}.csv.gz`);
+    const filePath = path.join(archiveDir, `${week}.csv.gz`);
     await gzipAppendCsv(
       filePath,
       weekRows.map((row) => rowToCsv(row)),

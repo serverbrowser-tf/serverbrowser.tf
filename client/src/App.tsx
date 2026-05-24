@@ -16,6 +16,7 @@ import "./App.css";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalStorage } from "./useLocalStorage.ts";
 import Fuse from "fuse.js";
+import cx from "classnames";
 import {
   api,
   apiRoute,
@@ -49,6 +50,7 @@ import { currentSearch, currentTabAtom, TabsHeader } from "./TabsHeader.tsx";
 import { useNavigate, useParams } from "react-router";
 import { Modal } from "./Modal.tsx";
 import { ServerPage } from "./ServerPage.tsx";
+import { ValveOverview } from "./ValveOverview.tsx";
 
 const expandedRowsAtom = new Atom(new Set<string>());
 
@@ -372,6 +374,8 @@ function App() {
     queryKey = ["filtered", "favorites"];
   } else if (tabOpen === "blacklist") {
     queryKey = ["filtered", "blacklist"];
+  } else if (tabOpen === "valve") {
+    queryKey = ["filtered", "valve", region, hasUsersPlaying];
   }
 
   const { error, data, refetch } = useQuery<ServerInfo[]>({
@@ -435,7 +439,10 @@ function App() {
               console.error("Unknown region", region);
           }
         }
-        url.searchParams.set("category", category);
+        url.searchParams.set(
+          "category",
+          tabOpen === "valve" ? "valve" : category,
+        );
       }
       const fetched = await api<ServerInfo[]>(url.toString(), {
         signal,
@@ -557,7 +564,7 @@ function App() {
           return players !== 0;
         });
       }
-    } else if (blacklist.length) {
+    } else if (tabOpen !== "valve" && blacklist.length) {
       const blacklistIps = new Set(blacklist);
       copy = copy.filter((server) => !blacklistIps.has(server.ip));
     }
@@ -743,6 +750,9 @@ function App() {
             case "blacklist":
               navigate(`/blacklist/servers/${row.ip}`, { replace: true });
               break;
+            case "valve":
+              navigate(`/valve/servers/${row.ip}`, { replace: true });
+              break;
           }
         },
       },
@@ -766,7 +776,7 @@ function App() {
         },
       });
     }
-    if (tabOpen !== "blacklist") {
+    if (tabOpen !== "blacklist" && tabOpen !== "valve") {
       if (favorites.includes(row.ip)) {
         options.push({
           label: "Remove server from favorites",
@@ -783,7 +793,7 @@ function App() {
         });
       }
     }
-    if (tabOpen !== "favorites") {
+    if (tabOpen !== "favorites" && tabOpen !== "valve") {
       if (blacklist.includes(row.ip)) {
         options.push({
           label: "Remove server from blacklist",
@@ -828,8 +838,9 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={cx("app", tabOpen === "valve" && "valve")}>
       <TabsHeader />
+      {tabOpen === "valve" && <ValveOverview />}
       <div className="grid">
         <DataGrid
           // TODO new version of react-data-grid supports column widths. the
@@ -879,232 +890,235 @@ function App() {
           }}
         />
       </div>
-      <div className="settings-container">
-        <div className="top-level">
-          <div className="tags">
-            <label>
-              Tags include
-              <input
-                type="text"
-                name="mustIncludeTags"
-                value={mustIncludeTagsRaw}
-                onChange={(e) => setMustIncludeTags(e.currentTarget.value)}
-              />
-            </label>
-            <label>
-              Tags don't include
-              <input
-                type="text"
-                name="mustNotIncludeTags"
-                value={mustNotIncludeTagsRaw}
-                onChange={(e) => setMustNotIncludeTags(e.currentTarget.value)}
-              />
-            </label>
+      {tabOpen !== "valve" && (
+        <div className="settings-container">
+          <div className="top-level">
+            <div className="tags">
+              <label>
+                Tags include
+                <input
+                  type="text"
+                  name="mustIncludeTags"
+                  value={mustIncludeTagsRaw}
+                  onChange={(e) => setMustIncludeTags(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                Tags don't include
+                <input
+                  type="text"
+                  name="mustNotIncludeTags"
+                  value={mustNotIncludeTagsRaw}
+                  onChange={(e) => setMustNotIncludeTags(e.currentTarget.value)}
+                />
+              </label>
+            </div>
           </div>
-        </div>
-        <hr />
-        <div className="settings">
-          <div className="settings-column right-align">
-            <label>
-              Category
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="all">All</option>
-                {Object.entries(publicCategories).map(([key, value]) => (
-                  <option value={key}>{value}</option>
-                ))}
-              </select>
-            </label>
+          <hr />
+          <div className="settings">
+            <div className="settings-column right-align">
+              <label>
+                Category
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
+                  <option value="all">All</option>
+                  {Object.entries(publicCategories).map(([key, value]) => (
+                    <option value={key}>{value}</option>
+                  ))}
+                </select>
+              </label>
 
-            <label>
-              Map
-              <input
-                type="text"
-                name="map"
-                value={map}
-                onChange={(e) => setMap(e.currentTarget.value)}
-              />
-            </label>
-            <label>
-              Latency
-              <select
-                value={latency}
-                onChange={(e) => setLatency(e.target.value)}
-              >
-                <option value=""></option>
-                <option value="50">&lt; 50</option>
-                <option value="100">&lt; 100</option>
-                <option value="150">&lt; 150</option>
-                <option value="250">&lt; 250</option>
-                <option value="350">&lt; 350</option>
-                <option value="600">&lt; 600</option>
-              </select>
-            </label>
-            <label>
-              Location
-              <select
-                value={region}
-                onChange={(e) => setRegion(e.currentTarget.value)}
-              >
-                <option value="All">All</option>
-                <option value="Africa">Africa</option>
-                <option value="Asia">Asia</option>
-                <option value="Australia">Australia</option>
-                <option value="Europe">Europe</option>
-                <option value="Middle East">Middle East</option>
-                <option value="North America">North America</option>
-                <option value="South America">South America</option>
-              </select>
-            </label>
-            <label>
-              Max player count
-              <input
-                type="number"
-                className="minimal"
-                value={maxPlayerCount ?? ""}
-                onChange={(e) => {
-                  if (e.target.value === "") {
-                    setMaxPlayerCount(null);
-                  } else {
-                    setMaxPlayerCount(e.target.valueAsNumber);
+              <label>
+                Map
+                <input
+                  type="text"
+                  name="map"
+                  value={map}
+                  onChange={(e) => setMap(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                Latency
+                <select
+                  value={latency}
+                  onChange={(e) => setLatency(e.target.value)}
+                >
+                  <option value=""></option>
+                  <option value="50">&lt; 50</option>
+                  <option value="100">&lt; 100</option>
+                  <option value="150">&lt; 150</option>
+                  <option value="250">&lt; 250</option>
+                  <option value="350">&lt; 350</option>
+                  <option value="600">&lt; 600</option>
+                </select>
+              </label>
+              <label>
+                Location
+                <select
+                  value={region}
+                  onChange={(e) => setRegion(e.currentTarget.value)}
+                >
+                  <option value="All">All</option>
+                  <option value="Africa">Africa</option>
+                  <option value="Asia">Asia</option>
+                  <option value="Australia">Australia</option>
+                  <option value="Europe">Europe</option>
+                  <option value="Middle East">Middle East</option>
+                  <option value="North America">North America</option>
+                  <option value="South America">South America</option>
+                </select>
+              </label>
+              <label>
+                Max player count
+                <input
+                  type="number"
+                  className="minimal"
+                  value={maxPlayerCount ?? ""}
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      setMaxPlayerCount(null);
+                    } else {
+                      setMaxPlayerCount(e.target.valueAsNumber);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+            <div className="settings-column">
+              <label>
+                <input
+                  type="checkbox"
+                  name="notFull"
+                  checked={notFull}
+                  onChange={(e) => setNotFull(e.currentTarget.checked)}
+                />
+                Server not full
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  name="hasUsersPlaying"
+                  checked={hasUsersPlaying}
+                  onChange={(e) => setHasUsersPlaying(e.currentTarget.checked)}
+                />
+                Has users playing
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  name="passwordProtected"
+                  checked={filterPasswordProtected}
+                  onChange={(e) =>
+                    setFilterPasswordProtected(e.currentTarget.checked)
                   }
-                }}
-              />
-            </label>
-          </div>
-          <div className="settings-column">
-            <label>
-              <input
-                type="checkbox"
-                name="notFull"
-                checked={notFull}
-                onChange={(e) => setNotFull(e.currentTarget.checked)}
-              />
-              Server not full
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="hasUsersPlaying"
-                checked={hasUsersPlaying}
-                onChange={(e) => setHasUsersPlaying(e.currentTarget.checked)}
-              />
-              Has users playing
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="passwordProtected"
-                checked={filterPasswordProtected}
-                onChange={(e) =>
-                  setFilterPasswordProtected(e.currentTarget.checked)
-                }
-              />
-              Is not password protected
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="vanillaMaps"
-                checked={vanillaMaps}
-                onChange={(e) => setVanillaMaps(e.currentTarget.checked)}
-              />
-              Vanilla Maps
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="customMaps"
-                checked={customMaps}
-                onChange={(e) => setCustomMaps(e.currentTarget.checked)}
-              />
-              Custom Maps
-            </label>
-          </div>
-          <div className="settings-column">
-            <fieldset>
-              <legend>Alltalk</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="alltalk"
-                  value="na"
-                  checked={allTalkPreference.na}
-                  onChange={() => {
-                    setSpecificTag(() => {}, "alltalk");
-                  }}
                 />
-                No preference
+                Is not password protected
               </label>
               <label>
                 <input
-                  type="radio"
-                  name="alltalk"
-                  value="yes"
-                  checked={allTalkPreference.mustNotInclude}
-                  onChange={() => {
-                    setSpecificTag(setMustNotIncludeTags, "alltalk");
-                  }}
+                  type="checkbox"
+                  name="vanillaMaps"
+                  checked={vanillaMaps}
+                  onChange={(e) => setVanillaMaps(e.currentTarget.checked)}
                 />
-                No alltalk
+                Vanilla Maps
               </label>
               <label>
                 <input
-                  type="radio"
-                  name="alltalk"
-                  value="no"
-                  checked={allTalkPreference.mustInclude}
-                  onChange={() => {
-                    setSpecificTag(setMustIncludeTags, "alltalk");
-                  }}
+                  type="checkbox"
+                  name="customMaps"
+                  checked={customMaps}
+                  onChange={(e) => setCustomMaps(e.currentTarget.checked)}
                 />
-                Alltalk
+                Custom Maps
               </label>
-            </fieldset>
-            <fieldset>
-              <legend>Random Crits</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="crits"
-                  value="na"
-                  checked={randomCritPreference.na}
-                  onChange={() => {
-                    setSpecificTag(() => {}, "nocrits");
-                  }}
-                />
-                No preference
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="crits"
-                  value="yes"
-                  checked={randomCritPreference.mustInclude}
-                  onChange={() => {
-                    setSpecificTag(setMustIncludeTags, "nocrits");
-                  }}
-                />
-                No random crits
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="crits"
-                  value="no"
-                  checked={randomCritPreference.mustNotInclude}
-                  onChange={() => {
-                    setSpecificTag(setMustNotIncludeTags, "nocrits");
-                  }}
-                />
-                Random crits
-              </label>
-            </fieldset>
+            </div>
+            <div className="settings-column">
+              <fieldset>
+                <legend>Alltalk</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="alltalk"
+                    value="na"
+                    checked={allTalkPreference.na}
+                    onChange={() => {
+                      setSpecificTag(() => { }, "alltalk");
+                    }}
+                  />
+                  No preference
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="alltalk"
+                    value="yes"
+                    checked={allTalkPreference.mustNotInclude}
+                    onChange={() => {
+                      setSpecificTag(setMustNotIncludeTags, "alltalk");
+                    }}
+                  />
+                  No alltalk
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="alltalk"
+                    value="no"
+                    checked={allTalkPreference.mustInclude}
+                    onChange={() => {
+                      setSpecificTag(setMustIncludeTags, "alltalk");
+                    }}
+                  />
+                  Alltalk
+                </label>
+              </fieldset>
+              <fieldset>
+                <legend>Random Crits</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="crits"
+                    value="na"
+                    checked={randomCritPreference.na}
+                    onChange={() => {
+                      setSpecificTag(() => { }, "nocrits");
+                    }}
+                  />
+                  No preference
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="crits"
+                    value="yes"
+                    checked={randomCritPreference.mustInclude}
+                    onChange={() => {
+                      setSpecificTag(setMustIncludeTags, "nocrits");
+                    }}
+                  />
+                  No random crits
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="crits"
+                    value="no"
+                    checked={randomCritPreference.mustNotInclude}
+                    onChange={() => {
+                      setSpecificTag(setMustNotIncludeTags, "nocrits");
+                    }}
+                  />
+                  Random crits
+                </label>
+              </fieldset>
+            </div>
           </div>
         </div>
-      </div>
+
+      )}
       {isLoggedIn && serverToBan && <BanModal serverToBan={serverToBan} />}
       {contextMenuProps && (
         <ContextMenu
@@ -1126,6 +1140,9 @@ function App() {
                 break;
               case "blacklist":
                 navigate("/blacklist", { replace: true });
+                break;
+              case "valve":
+                navigate("/valve", { replace: true });
                 break;
             }
           }}

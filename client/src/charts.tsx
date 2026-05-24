@@ -35,10 +35,27 @@ export interface ServerDetailStats {
     raw_hours: number;
     timestamp: number;
   }>;
+  playerCountsByMap?: Array<{
+    map: string;
+    player_count: number;
+    player_hours: number;
+    raw_hours: number;
+    timestamp: number;
+  }>;
+  playerCountsByTimestamp?: Array<{
+    player_count: number;
+    player_hours: number;
+    raw_hours: number;
+    timestamp: number;
+  }>;
 }
 
 export const requestServerDetail = (ip: string) => {
   return api<ServerDetailStats>(`/api/server-details-v2/${ip}`);
+};
+
+export const requestValveDetail = () => {
+  return api<ServerDetailStats>("/api/valve/details");
 };
 
 export const serverStatsGroupByMap = memoize(
@@ -56,7 +73,9 @@ export const serverStatsGroupByMap = memoize(
         return old;
       },
     };
-    for (const { map, player_hours, raw_hours } of serverStats.playerCounts) {
+    const playerCounts =
+      serverStats.playerCountsByMap ?? serverStats.playerCounts;
+    for (const { map, player_hours, raw_hours } of playerCounts) {
       if (map != null) mapUpsert(maps, map, updater, player_hours, raw_hours);
     }
     const mapsArray = Array.from(maps.values()).sort((a, b) => {
@@ -93,12 +112,14 @@ export const serverStatsGroupByTimestamp = memoize(
         return old;
       },
     };
+    const playerCounts =
+      serverStats.playerCountsByTimestamp ?? serverStats.playerCounts;
     for (const {
       timestamp,
       player_count,
       player_hours,
       raw_hours,
-    } of serverStats.playerCounts) {
+    } of playerCounts) {
       mapUpsert(
         timestamps,
         timestamp,
@@ -183,7 +204,9 @@ export function StatsAtAGlance({ serverStats }: StatsAtAGlanceProps) {
     let gamemodesForActiveSessions = 0;
     const mapsForThisSession = new Set<string>();
     const gamemodesForThisSession = new Set<string>();
-    for (const record of serverStats.playerCounts ?? []) {
+    for (const record of serverStats.playerCountsByMap ??
+      serverStats.playerCounts ??
+      []) {
       const timestamp = record.timestamp;
 
       const playerCount = serverStats.byTimestamp.get(timestamp)?.player_count;

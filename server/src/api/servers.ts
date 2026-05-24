@@ -363,4 +363,18 @@ apiRouter.get(
   }),
 );
 
+apiRouter.get(
+  "/api/valve/details",
+  cacheMiddleware,
+  asyncify(async (_req, res) => {
+    const dataloaders = buildDataloaders(db);
+
+    res.startTime("playerCounts", "");
+    const details = dataloaders.valveDetails();
+    res.endTime("playerCounts");
+
+    res.json(details);
+  }),
+);
+
 export default apiRouter;

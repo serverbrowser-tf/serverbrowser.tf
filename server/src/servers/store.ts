@@ -11,6 +11,7 @@ import {
   steamWebApiServerInfoToLegacy,
 } from "../types";
 import { mapUpsert } from "../utils";
+import { isValveServer } from "./valve";
 
 let id = Math.random().toString(36).substring(2);
 let lastRequestTime = -1;
@@ -136,6 +137,7 @@ export function mergeLiveServers(steamServers: SteamWebApiServerInfo[]) {
   const legacyServers = steamWebApiServerInfoToLegacy(steamServers);
 
   for (const server of legacyServers) {
+    server.is_valve = isValveServer(server) ? 1 : 0;
     const steamid = server.steamid;
     if (steamid && allServersBySteamId.has(steamid)) {
       const existing = allServersBySteamId.get(steamid)!;
@@ -188,8 +190,9 @@ function rebuildServerBuckets() {
   const nextServers: Record<string, ServerInfo[]> = {};
 
   for (const server of allServersByIp.values()) {
-    const finalCategory =
-      blacklist.get(server.ip) ?? inferServerCategory(server);
+    const finalCategory = isValveServer(server)
+      ? "valve"
+      : blacklist.get(server.ip) ?? inferServerCategory(server);
     const bucket = finalCategory ?? "vanilla";
 
     server.category = bucket === "vanilla" ? undefined : bucket;
@@ -264,7 +267,7 @@ export function getOnlineServers(input: {
   const { category, hasUsersPlaying, regions } = input;
   let copy: ServerInfo[];
   if (category === "all") {
-    copy = Object.values(omit(servers, "fake players")).flat();
+    copy = Object.values(omit(servers, "fake players", "valve")).flat();
   } else {
     copy = servers[String(category ?? "vanilla")] ?? [];
   }

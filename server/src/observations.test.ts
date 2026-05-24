@@ -43,6 +43,7 @@ CREATE TABLE servers (
     visibility TINYINT,
     maxPlayers TINYINT,
     last_online DATETIME,
+    is_valve INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT idx_steamid UNIQUE (steamid)
 );
 `);
@@ -51,10 +52,12 @@ CREATE TABLE servers (
 }
 
 function migrationSql() {
-  return fsSync.readFileSync(
+  return [
     "./migrations/010-server-observations.sql",
-    "utf8",
-  );
+    "./migrations/012-observation-source-derived.sql",
+  ]
+    .map((file) => fsSync.readFileSync(file, "utf8"))
+    .join("\n");
 }
 
 function server(overrides: Partial<HydratedServerInfo>): HydratedServerInfo {
@@ -91,7 +94,10 @@ describe("server observations", () => {
     const db = new Database(":memory:");
     db.run(`
 CREATE TABLE maps (id INTEGER PRIMARY KEY AUTOINCREMENT, map TEXT NOT NULL UNIQUE);
-CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TABLE servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  is_valve INTEGER NOT NULL DEFAULT 0
+);
 `);
     db.run(migrationSql());
 
@@ -105,8 +111,13 @@ CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT);
       .query<{ name: string }, []>("PRAGMA index_list(server_observations)")
       .all()
       .map((row) => row.name);
+    const columns = db
+      .query<{ name: string }, []>("PRAGMA table_info(server_observations)")
+      .all()
+      .map((row) => row.name);
 
     expect(table?.name).toBe("server_observations");
+    expect(columns).not.toContain("source");
     expect(indexes).toContain("idx_server_observations_server_observed_at");
     expect(indexes).toContain("idx_server_observations_map_observed_at");
     expect(indexes).toContain("idx_server_observations_observed_at");
@@ -133,15 +144,12 @@ CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT);
     const observedAt = new Date("2026-05-22T13:14:15.900Z");
 
     await updater.updateServers(servers);
-    await updater.updateServerObservations(servers, observedAt, "community");
+    await updater.updateServerObservations(servers, observedAt);
 
     const rows = db
-      .query<
-        { observed_at: number; source: string; players: number; map: string },
-        []
-      >(
+      .query<{ observed_at: number; players: number; map: string }, []>(
         `
-SELECT so.observed_at, so.source, so.players, m.map
+SELECT so.observed_at, so.players, m.map
 FROM server_observations so
 INNER JOIN maps m ON m.id = so.map_id
 ORDER BY so.id
@@ -152,13 +160,11 @@ ORDER BY so.id
     expect(rows).toEqual([
       {
         observed_at: 1_779_455_655,
-        source: "community",
         players: 10,
         map: "cp_badlands",
       },
       {
         observed_at: 1_779_455_655,
-        source: "community",
         players: 4,
         map: "pl_upward",
       },
@@ -184,25 +190,22 @@ ORDER BY so.id
 
     db.prepare(
       `
-INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
-VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
 `,
     ).run(
       serverId,
       mapId,
       Date.parse("2026-05-16T16:00:00Z") / 1000,
       7,
-      "community",
       serverId,
       mapId,
       Date.parse("2026-05-17T16:00:00Z") / 1000,
       8,
-      "community",
       serverId,
       mapId,
       Date.parse("2026-05-23T14:00:00Z") / 1000,
       9,
-      "community",
     );
 
     const result = await archiveServerObservations({
@@ -216,10 +219,10 @@ VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
       Date.parse("2026-05-23T04:00:00Z") / 1000,
     );
     const previousWeek = await readGzipCsv(
-      path.join(archiveDir, "observations-2026-05-10_to_2026-05-16.csv.gz"),
+      path.join(archiveDir, "2026-05-10_to_2026-05-16.csv.gz"),
     );
     const currentWeek = await readGzipCsv(
-      path.join(archiveDir, "observations-2026-05-17_to_2026-05-23.csv.gz"),
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
     );
 
     expect(previousWeek).toBe(
@@ -261,7 +264,7 @@ VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
     const mapId = await buildDataloaders(db).mapId.load("cp_badlands");
     const archiveFile = path.join(
       archiveDir,
-      "observations-2026-05-17_to_2026-05-23.csv.gz",
+      "2026-05-17_to_2026-05-23.csv.gz",
     );
     await fs.writeFile(
       archiveFile,
@@ -271,16 +274,10 @@ VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
     );
     db.prepare(
       `
-INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?)
 `,
-    ).run(
-      serverId,
-      mapId,
-      Date.parse("2026-05-18T16:00:00Z") / 1000,
-      11,
-      "community",
-    );
+    ).run(serverId, mapId, Date.parse("2026-05-18T16:00:00Z") / 1000, 11);
 
     await archiveServerObservations({
       db,
@@ -293,6 +290,58 @@ VALUES (?, ?, ?, ?, ?)
       csv.match(/observed_at,source,ip,name,steamid,region,map,players/g),
     ).toHaveLength(1);
     expect(csv).toContain("old,row\n1779120000,community,127.0.0.4:27015");
+  });
+
+  test("derives archived source from server is_valve", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    const archiveDir = await createTempDir();
+    await updater.updateServers([
+      server({
+        ip: "127.0.0.9:27015",
+        server: "127.0.0.9:27015",
+        steamid: "9",
+      }),
+      server({
+        ip: "127.0.0.10:27015",
+        server: "127.0.0.10:27015",
+        steamid: "10",
+        name: "Valve Matchmaking Server #10",
+        keywords: "valve,hidden",
+      }),
+    ]);
+    const dataloaders = buildDataloaders(db);
+    const communityServerId = await dataloaders.serverId.load("9" as any);
+    const valveServerId = await dataloaders.serverId.load("10" as any);
+    const mapId = await dataloaders.mapId.load("cp_badlands");
+
+    db.prepare(
+      `
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?), (?, ?, ?, ?)
+`,
+    ).run(
+      communityServerId,
+      mapId,
+      Date.parse("2026-05-18T16:00:00Z") / 1000,
+      11,
+      valveServerId,
+      mapId,
+      Date.parse("2026-05-18T16:00:00Z") / 1000,
+      22,
+    );
+
+    await archiveServerObservations({
+      db,
+      archiveDir,
+      now: new Date("2026-05-23T16:00:00Z"),
+    });
+
+    const csv = await readGzipCsv(
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
+    );
+    expect(csv).toContain("1779120000,community,127.0.0.9:27015");
+    expect(csv).toContain("1779120000,valve,127.0.0.10:27015");
   });
 
   test("archives unknown region numbers as empty CSV fields", async () => {
@@ -312,15 +361,60 @@ VALUES (?, ?, ?, ?, ?)
 
     db.prepare(
       `
-INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?)
+`,
+    ).run(serverId, mapId, Date.parse("2026-05-18T16:00:00Z") / 1000, 11);
+
+    await archiveServerObservations({
+      db,
+      archiveDir,
+      now: new Date("2026-05-23T16:00:00Z"),
+    });
+
+    const csv = await readGzipCsv(
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
+    );
+    expect(csv).toContain(
+      "1779120000,community,127.0.0.6:27015,Test Server,6,,cp_badlands,11",
+    );
+  });
+
+  test("orders archived rows by steamid", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    const archiveDir = await createTempDir();
+    await updater.updateServers([
+      server({
+        ip: "127.0.0.7:27015",
+        server: "127.0.0.7:27015",
+        steamid: "2",
+      }),
+      server({
+        ip: "127.0.0.8:27015",
+        server: "127.0.0.8:27015",
+        steamid: "1",
+      }),
+    ]);
+    const dataloaders = buildDataloaders(db);
+    const serverId2 = await dataloaders.serverId.load("2" as any);
+    const serverId1 = await dataloaders.serverId.load("1" as any);
+    const mapId = await dataloaders.mapId.load("cp_badlands");
+
+    db.prepare(
+      `
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?), (?, ?, ?, ?)
 `,
     ).run(
-      serverId,
+      serverId2,
+      mapId,
+      Date.parse("2026-05-18T16:00:00Z") / 1000,
+      22,
+      serverId1,
       mapId,
       Date.parse("2026-05-18T16:00:00Z") / 1000,
       11,
-      "community",
     );
 
     await archiveServerObservations({
@@ -330,11 +424,11 @@ VALUES (?, ?, ?, ?, ?)
     });
 
     const csv = await readGzipCsv(
-      path.join(archiveDir, "observations-2026-05-17_to_2026-05-23.csv.gz"),
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
     );
-    expect(csv).toContain(
-      "1779120000,community,127.0.0.6:27015,Test Server,6,,cp_badlands,11",
-    );
+    const lines = csv.trimEnd().split("\n");
+    expect(lines[1]).toContain(",1,US East,");
+    expect(lines[2]).toContain(",2,US East,");
   });
 
   test("keeps rows when archive write fails", async () => {
@@ -352,28 +446,19 @@ VALUES (?, ?, ?, ?, ?)
     const mapId = await buildDataloaders(db).mapId.load("cp_badlands");
     db.prepare(
       `
-INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?)
 `,
-    ).run(
-      serverId,
-      mapId,
-      Date.parse("2026-05-18T16:00:00Z") / 1000,
-      11,
-      "community",
-    );
+    ).run(serverId, mapId, Date.parse("2026-05-18T16:00:00Z") / 1000, 11);
     await fs.writeFile(
-      path.join(archiveDir, "observations-2026-05-17_to_2026-05-23.csv.gz"),
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
       "not a directory",
     );
 
     await expect(
       archiveServerObservations({
         db,
-        archiveDir: path.join(
-          archiveDir,
-          "observations-2026-05-17_to_2026-05-23.csv.gz",
-        ),
+        archiveDir: path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
         now: new Date("2026-05-23T16:00:00Z"),
       }),
     ).rejects.toThrow();

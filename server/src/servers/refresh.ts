@@ -122,7 +122,7 @@ async function refreshServersOnce(args: {
     steamServers.map((server) => server.steamid),
   );
   await updater.updateServers(legacyServers);
-  await updater.updateServerObservations(legacyServers, now, "community");
+  await updater.updateServerObservations(legacyServers, now);
 
   const lastRequestTime = getLastRequestTime();
   if (lastRequestTime > 0) {

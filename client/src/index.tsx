@@ -39,6 +39,8 @@ root.render(
           <Route path="/" element={<App />} />
           <Route path="/server/:ip/*" element={<ServerPage />} />
           <Route path="/servers/:ip" element={<App />} />
+          <Route path="/valve" element={<App />} />
+          <Route path="/valve/servers/:ip" element={<App />} />
           <Route path="/favorites" element={<App />} />
           <Route path="/blacklist" element={<App />} />
           <Route path="/favorites/servers/:ip" element={<App />} />

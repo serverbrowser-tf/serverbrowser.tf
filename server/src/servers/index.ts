@@ -30,7 +30,7 @@ function filterHidden(servers: SteamWebApiServerInfo[]) {
   });
 }
 
-const commonFilters = "\\appid\\440\\secure\\1\\gamedir\\tf\\ngametype\\valve";
+const commonFilters = "\\appid\\440\\secure\\1\\gamedir\\tf";
 
 async function fetchSteamServers(
   url: URL,

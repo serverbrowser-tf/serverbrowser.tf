@@ -16,6 +16,7 @@ export interface UnhydratedServerInfo {
   category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
+  is_valve?: 0 | 1;
 }
 
 export interface HydratedServerInfo {
@@ -33,6 +34,7 @@ export interface HydratedServerInfo {
   category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
+  is_valve?: 0 | 1;
 }
 
 export interface SteamWebApiServerInfo {

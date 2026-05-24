@@ -12,6 +12,7 @@ import {
   UnhydratedServerInfo,
 } from "./types";
 import { mapUpsert, scheduleDaily } from "./utils";
+import { isValveServer } from "./servers/valve";
 
 interface ServerRow {
   id: number;
@@ -22,6 +23,7 @@ interface ServerRow {
   region: number;
   visiblity: 0 | 1 | null;
   maxPlayers: number | null;
+  is_valve: 0 | 1;
 }
 
 const CACHE_MAX_AGE = 1 * 60 * 1000;
@@ -444,10 +446,11 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     async (ips) => {
       const queryStr = `
     SELECT
-      ip, steamid, name, keyword, map, visibility, maxPlayers, region
+      ip, steamid, name, keyword, map, visibility, maxPlayers, region, is_valve
     FROM servers s 
     LEFT JOIN maps m on m.id = s.map_id
-    WHERE ip in ({})`;
+    WHERE ip in ({})
+    AND s.is_valve = 0`;
       type Result = Pick<
         ServerRow,
         | "ip"
@@ -457,6 +460,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
         | "visiblity"
         | "maxPlayers"
         | "region"
+        | "is_valve"
       > & { map?: string };
       const map = new Map<string, Result>();
       const serverLocationsPromise = serverLocations.loadMany(
@@ -483,6 +487,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
           maxPlayers: server.maxPlayers ?? undefined,
           server: server.ip,
           steamid: server.steamid ?? undefined,
+          is_valve: server.is_valve,
           geoip:
             geoip instanceof Error || geoip == null
               ? null
@@ -512,6 +517,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     INNER JOIN servers s ON s.id = smh.server_id
     WHERE smh.map_id in ({})
     AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+    AND s.is_valve = 0
     AND smh.date >= date('now', '-28 days')
     GROUP BY smh.map_id, smh.server_id
     ORDER BY ip asc
@@ -568,6 +574,65 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     servers,
     serverLocations,
     mapServers,
+    valveDetails() {
+      const playerCountsByMapQueryStr = `
+SELECT m.map,
+       sp.timestamp,
+       SUM(sp.player_count) player_count,
+       ROUND(SUM(COALESCE(sp.player_hours, 0)), 3) player_hours,
+       ROUND(SUM(COALESCE(sp.raw_hours, 0)), 3) raw_hours
+FROM server_players sp
+INNER JOIN servers s ON s.id = sp.server_id
+INNER JOIN maps m ON m.id = sp.map_id
+WHERE s.is_valve = 1
+AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+GROUP BY sp.map_id, sp.timestamp
+ORDER BY sp.timestamp, m.map
+`;
+      const playerCountsByTimestampQueryStr = `
+SELECT sp.timestamp,
+       SUM(sp.player_count) player_count,
+       ROUND(SUM(COALESCE(sp.player_hours, 0)), 3) player_hours,
+       ROUND(SUM(COALESCE(sp.raw_hours, 0)), 3) raw_hours
+FROM server_players sp
+INNER JOIN servers s ON s.id = sp.server_id
+WHERE s.is_valve = 1
+AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+GROUP BY sp.timestamp
+ORDER BY sp.timestamp
+`;
+
+      const playerCountsByMap = db
+        .query<
+          {
+            map: string;
+            timestamp: number;
+            player_count: number;
+            player_hours: number;
+            raw_hours: number;
+          },
+          []
+        >(playerCountsByMapQueryStr)
+        .all();
+      const playerCountsByTimestamp = db
+        .query<
+          {
+            timestamp: number;
+            player_count: number;
+            player_hours: number;
+            raw_hours: number;
+          },
+          []
+        >(playerCountsByTimestampQueryStr)
+        .all();
+
+      return {
+        name: "Valve servers",
+        playerCounts: playerCountsByMap,
+        playerCountsByMap,
+        playerCountsByTimestamp,
+      };
+    },
     blacklist() {
       const queryStr = `
 SELECT servers.ip, blacklist.reason
@@ -602,6 +667,7 @@ INNER JOIN (
     AND smh.id = latest.max_id
 LEFT JOIN maps m ON m.id = smh.map_id
 WHERE blacklist.server_id IS NULL
+AND s.is_valve = 0
 AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
 ;
 `;
@@ -624,6 +690,7 @@ AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
       INNER JOIN maps m ON m.id = smh.map_id
       INNER JOIN servers s on s.id = smh.server_id
       WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+      AND s.is_valve = 0
       AND smh.date >= date('now', '-28 days')
       GROUP BY smh.map_id
       ORDER BY map asc`;
@@ -643,6 +710,7 @@ AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
              s.region,
              s.visibility,
              s.maxPlayers,
+             s.is_valve,
              m.map,
              bl.reason,
              sa.active_hours
@@ -669,6 +737,7 @@ AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
           region: number;
           visibility: 0 | 1;
           maxPlayers: number;
+          is_valve: 0 | 1;
           map: string;
           reason: string | null;
           active_hours: number;
@@ -699,6 +768,7 @@ AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
           region: row.region,
           geoip: null,
           active_hours: row.active_hours,
+          is_valve: row.is_valve,
         };
         ips.push(row.ip);
         ipMapping.set(row.ip, server);
@@ -827,6 +897,7 @@ SELECT steamid FROM servers WHERE steamid in {}
           mapId instanceof Error ? null : mapId,
           server.visibility,
           server.maxPlayers,
+          isValveServer(server) ? 1 : 0,
         ];
         if (existingSteamids.has(server.steamid)) {
           valuesWithSteamId.push(row);
@@ -836,7 +907,7 @@ SELECT steamid FROM servers WHERE steamid in {}
       }
 
       const queryBySteamId = `
-INSERT INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers)
+INSERT INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers, is_valve)
 VALUES {}
 ON CONFLICT(steamid) DO UPDATE SET
     ip = excluded.ip,
@@ -845,13 +916,14 @@ ON CONFLICT(steamid) DO UPDATE SET
     region = excluded.region,
     map_id = excluded.map_id,
     visibility = excluded.visibility,
-    maxPlayers = excluded.maxPlayers;
+    maxPlayers = excluded.maxPlayers,
+    is_valve = excluded.is_valve;
 `;
       if (valuesWithSteamId.length) {
         for (const chunked of chunk(valuesWithSteamId, CHUNKED / 2)) {
           db.transaction(() => {
             const prepared = db.prepare(
-              buildQueryBindings(queryBySteamId, 8, chunked.length),
+              buildQueryBindings(queryBySteamId, 9, chunked.length),
             );
             prepared.run(...chunked.flat());
             resetSequenceId(db, "servers");
@@ -867,12 +939,13 @@ SET steamid = ?,
     region = ?,
     map_id = ?,
     visibility = ?,
-    maxPlayers = ?
+    maxPlayers = ?,
+    is_valve = ?
 WHERE ip = ?
   AND steamid IS NULL;
 `);
       const queryInsertBySteamId = `
-INSERT OR IGNORE INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers)
+INSERT OR IGNORE INTO servers (ip, steamid, name, keyword, region, map_id, visibility, maxPlayers, is_valve)
 VALUES {}
 `;
       if (valuesForIpBackfill.length) {
@@ -887,12 +960,13 @@ VALUES {}
                 row[5],
                 row[6],
                 row[7],
+                row[8],
                 row[0],
               );
             }
 
             const prepared = db.prepare(
-              buildQueryBindings(queryInsertBySteamId, 8, chunked.length),
+              buildQueryBindings(queryInsertBySteamId, 9, chunked.length),
             );
             prepared.run(...chunked.flat());
             resetSequenceId(db, "servers");
@@ -955,7 +1029,6 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
     async updateServerObservations(
       servers: HydratedServerInfo[],
       observedAt: Date,
-      source = "community",
     ) {
       const [serverIds, mapIds] = await Promise.all([
         Promise.all(servers.map(resolveServerId)),
@@ -969,9 +1042,8 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
           mapIds[i],
           observedAtUnix,
           server.players - server.bots,
-          source,
         ])
-        .filter((info): info is Array<number | string> => {
+        .filter((info): info is number[] => {
           if (info[0] instanceof Error) {
             console.error("updateServerObservations", info[0]);
             return false;
@@ -984,13 +1056,13 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
         });
 
       const queryStr = `
-INSERT INTO server_observations (server_id, map_id, observed_at, players, source)
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
 VALUES {}
 `;
-      for (const chunked of chunk(values, Math.floor(400 / 5))) {
+      for (const chunked of chunk(values, Math.floor(400 / 4))) {
         db.transaction(() => {
           const prepared = db.prepare(
-            buildQueryBindings(queryStr, 5, chunked.length),
+            buildQueryBindings(queryStr, 4, chunked.length),
           );
           prepared.run(...chunked.flat());
           resetSequenceId(db, "server_observations");

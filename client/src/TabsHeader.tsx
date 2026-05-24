@@ -4,7 +4,13 @@ import { Link, useLocation } from "react-router";
 import { Atom, loggedInAtom, useAtom } from "./globals";
 import "./TabsHeader.css";
 
-export type Tab = "server" | "favorites" | "blacklist" | "admin" | "maps";
+export type Tab =
+  | "server"
+  | "valve"
+  | "favorites"
+  | "blacklist"
+  | "admin"
+  | "maps";
 
 export const currentTabAtom = new Atom<Tab>("server");
 export const currentSearch = new Atom("");
@@ -18,6 +24,8 @@ export const TabsHeader = () => {
 
   if (location.pathname.startsWith("/favorites")) {
     tab = "favorites";
+  } else if (location.pathname.startsWith("/valve")) {
+    tab = "valve";
   } else if (location.pathname.startsWith("/blacklist")) {
     tab = "blacklist";
   } else if (location.pathname.startsWith("/admin-view")) {
@@ -67,6 +75,14 @@ export const TabsHeader = () => {
         replace
       >
         Maps
+      </Link>
+      <Link
+        to="/valve"
+        className={cx("tab link-button", tab === "valve" && "active")}
+        draggable={false}
+        replace
+      >
+        Valve
       </Link>
       {loggedIn && (
         <Link

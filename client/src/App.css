@@ -91,3 +91,7 @@
     width: 300px;
   }
 }
+
+.app.valve {
+  grid-template-rows: auto 260px 1fr;
+}

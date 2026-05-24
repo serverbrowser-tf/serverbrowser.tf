@@ -27,6 +27,7 @@ interface HydratedServerInfo {
   geoip: [number, number] | null;
   active_hours?: number;
   category?: keyof typeof publicCategories;
+  is_valve?: 0 | 1;
 }
 
 interface UnhydratedServerInfo {
@@ -45,6 +46,7 @@ interface UnhydratedServerInfo {
   geoip: [number, number] | null;
   active_hours?: number;
   category?: keyof typeof publicCategories;
+  is_valve?: 0 | 1;
 }
 
 export type ServerInfo = HydratedServerInfo | UnhydratedServerInfo;
