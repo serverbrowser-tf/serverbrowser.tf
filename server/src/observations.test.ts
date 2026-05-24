@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import fsSync from "fs";
 import fs from "fs/promises";
@@ -46,6 +46,27 @@ CREATE TABLE servers (
     is_valve INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT idx_steamid UNIQUE (steamid)
 );
+CREATE TABLE server_players (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    player_count INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    map_id INTEGER REFERENCES maps(id),
+    player_hours REAL,
+    raw_hours REAL
+);
+CREATE UNIQUE INDEX idx_server_players_unique ON server_players(server_id, timestamp, map_id);
+CREATE TABLE server_map_hours (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    map_id INTEGER NOT NULL,
+    hours REAL NOT NULL,
+    raw_hours REAL,
+    date DATE NOT NULL,
+    FOREIGN KEY (server_id) REFERENCES servers(id),
+    FOREIGN KEY (map_id) REFERENCES maps(id)
+);
+CREATE UNIQUE INDEX idx_server_map_hours_unique ON server_map_hours(map_id, server_id, date);
 `);
   db.run(migrationSql());
   return db;
@@ -169,6 +190,65 @@ ORDER BY so.id
         map: "pl_upward",
       },
     ]);
+  });
+
+  test("updater skips map history for servers without maps", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const servers = [
+      server({
+        ip: "127.0.0.1:27015",
+        server: "127.0.0.1:27015",
+        steamid: "1",
+        map: "",
+      }),
+    ];
+
+    try {
+      await updater.updateServers(servers);
+      await updater.updateServerPlayers(
+        servers,
+        60,
+        new Date("2026-05-22T13:14:15.900Z"),
+      );
+      await updater.updateServerObservations(
+        servers,
+        new Date("2026-05-22T13:14:15.900Z"),
+      );
+      await updater.updateServerMapHours(
+        servers,
+        60,
+        new Date("2026-05-22T13:14:15.900Z"),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    const serverRow = db
+      .query<{ map_id: number | null }, []>("SELECT map_id FROM servers")
+      .get();
+    const playerRow = db
+      .query<{ count: number }, []>("SELECT COUNT(*) count FROM server_players")
+      .get();
+    const observationRow = db
+      .query<
+        { count: number },
+        []
+      >("SELECT COUNT(*) count FROM server_observations")
+      .get();
+    const mapHoursRow = db
+      .query<
+        { count: number },
+        []
+      >("SELECT COUNT(*) count FROM server_map_hours")
+      .get();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(serverRow?.map_id).toBeNull();
+    expect(playerRow?.count).toBe(0);
+    expect(observationRow?.count).toBe(0);
+    expect(mapHoursRow?.count).toBe(0);
   });
 
   test("archives previous-day rows into Sunday-Saturday gzip CSVs", async () => {

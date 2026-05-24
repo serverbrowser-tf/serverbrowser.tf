@@ -811,11 +811,11 @@ export const buildUpdaterService = memoize(function buildUpdaterService(
   const dataloaders = buildDataloaders(db);
   const CHUNKED = 100;
   const isValidMap = (map: unknown): map is string =>
-    typeof map === "string" && map.length > 0;
+    typeof map === "string" && map.trim().length > 0;
 
   const loadMapIdsForServers = async (servers: HydratedServerInfo[]) => {
     const maps = servers.map((server) =>
-      isValidMap(server.map) ? server.map : null,
+      isValidMap(server.map) ? server.map.trim() : null,
     );
     const validMaps = maps.filter((map): map is string => map != null);
     if (validMaps.length) {
@@ -829,7 +829,7 @@ export const buildUpdaterService = memoize(function buildUpdaterService(
 
     return maps.map((map) => {
       if (map == null) {
-        return new Error("Missing map");
+        return null;
       }
       const mapId = loadedMapIds[loadedMapIdIndex];
       loadedMapIdIndex += 1;
@@ -1001,6 +1001,9 @@ VALUES {}
             console.error("updateServerPlayers", info[0]);
             return false;
           }
+          if (info[1] == null) {
+            return false;
+          }
           if (info[1] instanceof Error) {
             console.error("updateServerPlayers", info[1]);
             return false;
@@ -1048,6 +1051,9 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
             console.error("updateServerObservations", info[0]);
             return false;
           }
+          if (info[1] == null) {
+            return false;
+          }
           if (info[1] instanceof Error) {
             console.error("updateServerObservations", info[1]);
             return false;
@@ -1091,6 +1097,9 @@ VALUES {}
         .filter((info): info is number[] => {
           if (info[0] instanceof Error) {
             console.error("updateServerMapHours", info[0]);
+            return false;
+          }
+          if (info[1] == null) {
             return false;
           }
           if (info[1] instanceof Error) {

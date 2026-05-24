@@ -76,14 +76,16 @@ export const TabsHeader = () => {
       >
         Maps
       </Link>
-      <Link
-        to="/valve"
-        className={cx("tab link-button", tab === "valve" && "active")}
-        draggable={false}
-        replace
-      >
-        Valve
-      </Link>
+      {
+        false && <Link
+          to="/valve"
+          className={cx("tab link-button", tab === "valve" && "active")}
+          draggable={false}
+          replace
+        >
+          Valve
+        </Link>
+      }
       {loggedIn && (
         <Link
           to="/admin-view"

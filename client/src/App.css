@@ -93,5 +93,5 @@
 }
 
 .app.valve {
-  grid-template-rows: auto 260px 1fr;
+  grid-template-rows: auto 320px 1fr;
 }
