@@ -8,6 +8,7 @@ const loginBodySchema = v.object({
   username: v.string(),
   password: v.string(),
 });
+const ADMIN_USERNAME = "hemorrhoids";
 
 export function parseLoginBody(input: unknown) {
   return v.safeParse(loginBodySchema, input);
@@ -15,6 +16,10 @@ export function parseLoginBody(input: unknown) {
 
 export function isLoggedIn(req: Request) {
   return req.cookies.authorizedkey === process.env.ADMIN_PASSWORD;
+}
+
+export function isValidLogin(username: string, password: string) {
+  return username === ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD;
 }
 
 export const isLoggedInMiddleware = (
@@ -41,7 +46,7 @@ router.post("/api/login", (req, res) => {
 
   const delay = sleep(100);
   const { username, password } = body.output;
-  if (username !== "hemorrhoids" || password !== process.env.ADMIN_PASSWORD) {
+  if (!isValidLogin(username, password)) {
     console.error("Failed login", username, ": ", password);
     delay.then(() => {
       res.json({

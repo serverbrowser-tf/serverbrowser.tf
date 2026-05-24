@@ -2,6 +2,11 @@ import { buildDataloaders, buildUpdaterService, db } from "../db";
 import { queryGameServerInfo } from "steam-server-query";
 import { getAllServers, getListOfServers } from ".";
 import {
+  recordRefreshServerCount,
+  startRefreshTimer,
+  timeRefreshPhase,
+} from "../metrics";
+import {
   bumpCacheVersion,
   clearMissingPlayerCounts,
   getLastSteamQueryAt,
@@ -84,60 +89,92 @@ async function refreshServersOnce(args: {
 }) {
   const { dataloaders, updater } = args;
   console.time("Refreshing servers");
-  let now = new Date();
-  const msUntilAllowedSteamQuery =
-    getLastSteamQueryAt() + refreshPeriodMs - Number(now);
-  if (msUntilAllowedSteamQuery > 0) {
-    markRefreshScheduled(msUntilAllowedSteamQuery);
-    await sleep(msUntilAllowedSteamQuery);
-    now = new Date();
+  const endTotalTimer = startRefreshTimer("total");
+  try {
+    let now = new Date();
+    const msUntilAllowedSteamQuery =
+      getLastSteamQueryAt() + refreshPeriodMs - Number(now);
+    if (msUntilAllowedSteamQuery > 0) {
+      markRefreshScheduled(msUntilAllowedSteamQuery);
+      await timeRefreshPhase("throttle_wait", () =>
+        sleep(msUntilAllowedSteamQuery),
+      );
+      now = new Date();
+    }
+
+    setLastSteamQueryAt(Number(now));
+    await timeRefreshPhase("cache_persist", persistServersJson);
+
+    const steamServers = await timeRefreshPhase(
+      "steam_server_list",
+      getListOfServers,
+    );
+    recordRefreshServerCount("steam_server_list", steamServers.length);
+    console.log("Found", steamServers.length, "servers from web api");
+
+    const geoIps = await timeRefreshPhase("geoip", () =>
+      dataloaders.serverLocations.loadMany(
+        steamServers.map((server) => server.addr.split(":")[0]),
+      ),
+    );
+    applyGeoIpResults(steamServers, geoIps);
+    applyStoredVisibility(steamServers);
+
+    const shouldRefreshVisibility =
+      lastVisibilityRefreshTime < 0 ||
+      lastVisibilityRefreshTime + visibilityRefreshPeriod < Date.now();
+    if (shouldRefreshVisibility) {
+      console.time("Refreshing visibility");
+      await timeRefreshPhase("visibility", () =>
+        refreshVisibility(steamServers),
+      );
+      lastVisibilityRefreshTime = Date.now();
+      console.timeEnd("Refreshing visibility");
+    }
+
+    clearMissingPlayerCounts();
+    const endMergeTimer = startRefreshTimer("merge_live_servers");
+    let legacyServers: ReturnType<typeof mergeLiveServers>;
+    try {
+      legacyServers = mergeLiveServers(steamServers);
+      recordRefreshServerCount("live_merged", legacyServers.length);
+    } finally {
+      endMergeTimer();
+    }
+
+    await timeRefreshPhase("update_last_online", async () => {
+      updater.updateLastOnlineBySteamId(
+        steamServers.map((server) => server.steamid),
+      );
+    });
+    await timeRefreshPhase("update_servers", () =>
+      updater.updateServers(legacyServers),
+    );
+    await timeRefreshPhase("update_observations", () =>
+      updater.updateServerObservations(legacyServers, now),
+    );
+
+    await timeRefreshPhase("update_player_history", async () => {
+      const lastRequestTime = getLastRequestTime();
+      if (lastRequestTime > 0) {
+        const diffInSeconds = Math.floor(
+          (Number(now) - lastRequestTime) / 1000,
+        );
+        await updater.updateServerPlayers(legacyServers, diffInSeconds, now);
+        await updater.updateServerMapHours(legacyServers, diffInSeconds, now);
+      } else {
+        await updater.updateServerPlayers(legacyServers, 0, now);
+      }
+    });
+    setLastRequestTime(Number(now));
+
+    bumpCacheVersion();
+    await timeRefreshPhase("cache_persist", persistServersJson);
+    console.info("Got", steamServers.length, "servers");
+  } finally {
+    endTotalTimer();
+    console.timeEnd("Refreshing servers");
   }
-
-  setLastSteamQueryAt(Number(now));
-  await persistServersJson();
-
-  const steamServers = await getListOfServers();
-  console.log("Found", steamServers.length, "servers from web api");
-
-  const geoIps = await dataloaders.serverLocations.loadMany(
-    steamServers.map((server) => server.addr.split(":")[0]),
-  );
-  applyGeoIpResults(steamServers, geoIps);
-  applyStoredVisibility(steamServers);
-
-  const shouldRefreshVisibility =
-    lastVisibilityRefreshTime < 0 ||
-    lastVisibilityRefreshTime + visibilityRefreshPeriod < Date.now();
-  if (shouldRefreshVisibility) {
-    console.time("Refreshing visibility");
-    await refreshVisibility(steamServers);
-    lastVisibilityRefreshTime = Date.now();
-    console.timeEnd("Refreshing visibility");
-  }
-
-  clearMissingPlayerCounts();
-  const legacyServers = mergeLiveServers(steamServers);
-
-  updater.updateLastOnlineBySteamId(
-    steamServers.map((server) => server.steamid),
-  );
-  await updater.updateServers(legacyServers);
-  await updater.updateServerObservations(legacyServers, now);
-
-  const lastRequestTime = getLastRequestTime();
-  if (lastRequestTime > 0) {
-    const diffInSeconds = Math.floor((Number(now) - lastRequestTime) / 1000);
-    await updater.updateServerPlayers(legacyServers, diffInSeconds, now);
-    await updater.updateServerMapHours(legacyServers, diffInSeconds, now);
-  } else {
-    await updater.updateServerPlayers(legacyServers, 0, now);
-  }
-  setLastRequestTime(Number(now));
-
-  bumpCacheVersion();
-  await persistServersJson();
-  console.info("Got", steamServers.length, "servers");
-  console.timeEnd("Refreshing servers");
 }
 
 export async function startServerRefreshLoop() {
@@ -154,7 +191,10 @@ export async function startServerRefreshLoop() {
 
     if (queriesAllServersThisLoop) {
       console.time("all servers");
-      const allServers = await dataloaders.allServers();
+      const allServers = await timeRefreshPhase("all_servers_db", () =>
+        dataloaders.allServers(),
+      );
+      recordRefreshServerCount("all_servers_db", allServers.ipMapping.size);
       console.log("Found", allServers.ipMapping.size, "servers from db");
       replaceServerIndexes(allServers);
       setBlacklist(dataloaders.blacklist());
@@ -168,10 +208,16 @@ export async function startServerRefreshLoop() {
     if (queriesAllServersThisLoop) {
       lastQueriedAllServers = Date.now();
       console.time("Querying all servers");
-      const servers = await getAllServers();
-      updater.updateLastOnlineBySteamId(
-        servers.map((server) => server.steamid),
+      const servers = await timeRefreshPhase(
+        "all_servers_steam",
+        getAllServers,
       );
+      recordRefreshServerCount("all_servers_steam", servers.length);
+      await timeRefreshPhase("update_last_online", async () => {
+        updater.updateLastOnlineBySteamId(
+          servers.map((server) => server.steamid),
+        );
+      });
       console.timeEnd("Querying all servers");
     }
 

@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { register } from "prom-client";
 
 import {
   getRequestMetrics,
   getSteamServerBrowserMetrics,
+  recordRefreshServerCount,
   recordExpressResponse,
   recordRequestStatus,
   recordSteamServerBrowserFailure,
   recordSteamServerBrowserSuccess,
   resetHealthMetricsForTests,
   shouldRecordRequestMetric,
+  startRefreshTimer,
 } from "./metrics";
 
 const hourMs = 60 * 60 * 1000;
@@ -87,5 +90,20 @@ describe("health metrics", () => {
       errorsPastHour: 0,
       lastError: null,
     });
+  });
+
+  test("records refresh phase duration and server counts", async () => {
+    const endTimer = startRefreshTimer("total");
+    const duration = endTimer();
+    recordRefreshServerCount("steam_server_list", 123);
+
+    const metrics = await register.metrics();
+    expect(duration).toBeGreaterThanOrEqual(0);
+    expect(metrics).toContain(
+      'serverbrowser_refresh_last_duration_seconds{phase="total"}',
+    );
+    expect(metrics).toContain(
+      'serverbrowser_refresh_servers{source="steam_server_list"} 123',
+    );
   });
 });

@@ -1,4 +1,27 @@
+import { Gauge, Histogram } from "prom-client";
+
 const ONE_HOUR_MS = 60 * 60 * 1000;
+
+export type RefreshPhase =
+  | "total"
+  | "throttle_wait"
+  | "steam_server_list"
+  | "geoip"
+  | "visibility"
+  | "merge_live_servers"
+  | "update_last_online"
+  | "update_servers"
+  | "update_observations"
+  | "update_player_history"
+  | "cache_persist"
+  | "all_servers_db"
+  | "all_servers_steam";
+
+export type RefreshServerSource =
+  | "steam_server_list"
+  | "live_merged"
+  | "all_servers_db"
+  | "all_servers_steam";
 
 interface RequestMetric {
   statusCode: number;
@@ -21,6 +44,27 @@ export interface SteamServerBrowserMetrics {
 
 const requestMetrics: RequestMetric[] = [];
 const steamServerBrowserMetrics: SteamServerBrowserMetric[] = [];
+const refreshDurationSeconds = new Histogram<"phase">({
+  name: "serverbrowser_refresh_duration_seconds",
+  help: "Duration of server refresh phases in seconds.",
+  labelNames: ["phase"],
+  buckets: [0.003, 0.03, 0.1, 0.3, 1, 3, 10, 30, 60, 180, 300],
+});
+const refreshLastDurationSeconds = new Gauge<"phase">({
+  name: "serverbrowser_refresh_last_duration_seconds",
+  help: "Most recent duration of each server refresh phase in seconds.",
+  labelNames: ["phase"],
+});
+const refreshLastCompletedAtSeconds = new Gauge<"phase">({
+  name: "serverbrowser_refresh_last_completed_at_seconds",
+  help: "Unix timestamp when each server refresh phase last completed.",
+  labelNames: ["phase"],
+});
+const refreshServerCount = new Gauge<"source">({
+  name: "serverbrowser_refresh_servers",
+  help: "Most recent server count seen during refresh.",
+  labelNames: ["source"],
+});
 
 function prune<T extends { finishedAt: number }>(metrics: T[], now: number) {
   const oldestAllowed = now - ONE_HOUR_MS;
@@ -116,6 +160,35 @@ export function recordExpressResponse(
   if (shouldRecordRequestMetric(method, path)) {
     recordRequestStatus(statusCode, finishedAt);
   }
+}
+
+export function startRefreshTimer(phase: RefreshPhase) {
+  const end = refreshDurationSeconds.startTimer({ phase });
+  return () => {
+    const durationSeconds = end();
+    refreshLastDurationSeconds.set({ phase }, durationSeconds);
+    refreshLastCompletedAtSeconds.set({ phase }, Date.now() / 1000);
+    return durationSeconds;
+  };
+}
+
+export async function timeRefreshPhase<T>(
+  phase: RefreshPhase,
+  callback: () => Promise<T>,
+) {
+  const end = startRefreshTimer(phase);
+  try {
+    return await callback();
+  } finally {
+    end();
+  }
+}
+
+export function recordRefreshServerCount(
+  source: RefreshServerSource,
+  count: number,
+) {
+  refreshServerCount.set({ source }, count);
 }
 
 export function resetHealthMetricsForTests() {

@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import serverTiming from "server-timing";
-import login, { isLoggedIn } from "./api/login";
+import promBundle from "express-prom-bundle";
+import login, { isLoggedIn, isValidLogin } from "./api/login";
 import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
@@ -19,12 +20,92 @@ const db = getDb();
 scheduleDbOptimize();
 scheduleServerObservationArchives(db);
 
+function isMetricsBasicAuthValid(header: string | undefined) {
+  const [type, encoded] = header?.split(" ") ?? [];
+  if (type !== "Basic" || !encoded) {
+    return false;
+  }
+
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const separatorIndex = decoded.indexOf(":");
+  if (separatorIndex < 0) {
+    return false;
+  }
+
+  return isValidLogin(
+    decoded.slice(0, separatorIndex),
+    decoded.slice(separatorIndex + 1),
+  );
+}
+
+function normalizeMetricsPath(req: express.Request) {
+  if (req.path === "/api/server-details-v2") {
+    return "/api/server-details-v2";
+  }
+  if (req.path.startsWith("/api/details/")) {
+    return "/api/details/#ip";
+  }
+  if (req.path.startsWith("/api/server-details/")) {
+    return "/api/server-details/#ip";
+  }
+  if (req.path.startsWith("/api/server-details-p2/")) {
+    return "/api/server-details-p2/#ip";
+  }
+  if (req.path.startsWith("/api/server-details-v2/")) {
+    return "/api/server-details-v2/#ip";
+  }
+  if (req.path.startsWith("/api/maps/details/")) {
+    return "/api/maps/details/#map";
+  }
+
+  switch (req.path) {
+    case "/api/health":
+    case "/api/location":
+    case "/api/login":
+    case "/api/maps":
+    case "/api/servers":
+    case "/api/servers/all":
+    case "/api/servers.json":
+    case "/api/ban":
+    case "/api/valve/details":
+      return req.path;
+    default:
+      return "unmatched";
+  }
+}
+
 app.use(cookieParser());
 app.use(cors());
 app.use(express.json());
 app.use(
   serverTiming({
     enabled: (req) => isLoggedIn(req),
+  }),
+);
+app.use("/api/health/metrics", (req, res, next) => {
+  if (isLoggedIn(req) || isMetricsBasicAuthValid(req.headers.authorization)) {
+    next();
+    return;
+  }
+
+  res.setHeader("WWW-Authenticate", 'Basic realm="serverbrowser metrics"');
+  res.status(401).end();
+});
+app.use(
+  promBundle({
+    includeMethod: true,
+    includePath: true,
+    includeStatusCode: true,
+    promClient: {
+      collectDefaultMetrics: {},
+    },
+    metricsPath: "/api/health/metrics",
+    normalizePath: normalizeMetricsPath,
+    bypass: {
+      onRequest(req) {
+        return req.path === "/api/health" || req.path === "/api/health/metrics";
+      },
+    },
   }),
 );
 app.use((req, res, next) => {
