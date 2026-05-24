@@ -138,6 +138,9 @@ export function mergeLiveServers(steamServers: SteamWebApiServerInfo[]) {
 
   for (const server of legacyServers) {
     server.is_valve = isValveServer(server) ? 1 : 0;
+    if (server.is_valve) {
+      server.visibility = 1;
+    }
     const steamid = server.steamid;
     if (steamid && allServersBySteamId.has(steamid)) {
       const existing = allServersBySteamId.get(steamid)!;
@@ -192,7 +195,7 @@ function rebuildServerBuckets() {
   for (const server of allServersByIp.values()) {
     const finalCategory = isValveServer(server)
       ? "valve"
-      : blacklist.get(server.ip) ?? inferServerCategory(server);
+      : (blacklist.get(server.ip) ?? inferServerCategory(server));
     const bucket = finalCategory ?? "vanilla";
 
     server.category = bucket === "vanilla" ? undefined : bucket;

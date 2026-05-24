@@ -21,6 +21,7 @@ import {
   setLastSteamQueryAt,
 } from "./store";
 import { sleep } from "../utils";
+import { isValveServer } from "./valve";
 
 const refreshPeriod = Number(process.env.REFRESH_PERIOD ?? 1);
 const refreshPeriodMs = 1000 * 60 * refreshPeriod;
@@ -55,6 +56,10 @@ function applyStoredVisibility(
   steamServers: Awaited<ReturnType<typeof getListOfServers>>,
 ) {
   for (const server of steamServers) {
+    if (isValveServer(server)) {
+      server.visibility = 1;
+      continue;
+    }
     server.visibility = getVisibilityByIp(server.addr) ?? 0;
   }
 }
@@ -69,6 +74,11 @@ async function refreshVisibility(
       const result = serverAddresses.next();
       if (result.done) {
         return;
+      }
+
+      if (isValveServer(result.value)) {
+        result.value.visibility = 1;
+        continue;
       }
 
       try {

@@ -140,7 +140,7 @@ describe("Valve server classification", () => {
     });
     setBlacklist(new Map());
 
-    mergeLiveServers([
+    const merged = mergeLiveServers([
       steamServer({
         addr: "127.0.0.1:27015",
         steamid: "1",
@@ -155,6 +155,7 @@ describe("Valve server classification", () => {
       }),
     ]);
 
+    expect(merged[0].visibility).toBe(1);
     expect(
       getOnlineServers({
         category: "valve",
