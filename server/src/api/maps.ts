@@ -11,16 +11,11 @@ router.get(
 
     res.setHeader("Cache-Control", "public, max-age=7200");
     res.setHeader("Content-Type", "application/jsonl");
-    if (true) {
-      for (const map of dataloaders.listMaps()) {
-        res.write(JSON.stringify(map) + "\n");
-      }
 
-      res.end();
-    } else {
-      const maps = [...dataloaders.listMaps()];
-      res.json(maps);
-    }
+    const body =
+      [...dataloaders.listMaps()].map((map) => JSON.stringify(map)).join("\n") +
+      "\n";
+    res.send(body);
   }),
 );
 

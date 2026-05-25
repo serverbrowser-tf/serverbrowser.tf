@@ -667,20 +667,28 @@ order by blacklist.reason
     },
     adminView() {
       const queryStr = `
+WITH active_servers AS MATERIALIZED (
+    SELECT s.*
+    FROM servers s
+    LEFT JOIN blacklist ON s.id = blacklist.server_id
+    WHERE blacklist.server_id IS NULL
+    AND s.is_valve = 0
+    AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+), latest AS MATERIALIZED (
+    SELECT
+        smh.server_id,
+        MAX(smh.id) AS max_id,
+        ROUND(SUM(smh.hours), 1) AS hours
+    FROM active_servers s
+    CROSS JOIN server_map_hours smh INDEXED BY idx_server_map_hours_server_id_map_hours
+    WHERE smh.server_id = s.id
+    GROUP BY smh.server_id
+)
 SELECT s.*, m.map, latest.hours
-FROM servers s
-LEFT JOIN blacklist ON s.id = blacklist.server_id
-LEFT JOIN server_map_hours smh ON s.id = smh.server_id
-INNER JOIN (
-    SELECT server_id, MAX(id) as max_id, ROUND(SUM(hours), 1) as hours
-    FROM server_map_hours
-    GROUP BY server_id
-) latest ON smh.server_id = latest.server_id 
-    AND smh.id = latest.max_id
+FROM active_servers s
+INNER JOIN latest ON latest.server_id = s.id
+INNER JOIN server_map_hours smh ON smh.id = latest.max_id
 LEFT JOIN maps m ON m.id = smh.map_id
-WHERE blacklist.server_id IS NULL
-AND s.is_valve = 0
-AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
 ;
 `;
       const query = db.prepare<ServerRow & { hours: number }, []>(queryStr);
