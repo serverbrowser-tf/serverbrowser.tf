@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 
 import { getDb } from "./db";
 import {
+  getRequestLatencyMetrics,
   getRequestMetrics,
   getSteamServerBrowserMetrics,
 } from "./metrics";
@@ -12,7 +13,10 @@ export interface HealthPayload {
   version: GitVersion;
   timestamp: string;
   uptimeSeconds: number;
-  requestsPastHour: ReturnType<typeof getRequestMetrics>;
+  requests: {
+    hour: ReturnType<typeof getRequestMetrics>;
+    latencyPast100: ReturnType<typeof getRequestLatencyMetrics>;
+  };
   checks: {
     database: {
       ok: boolean;
@@ -33,7 +37,7 @@ export function checkDatabase(db: Database = getDb()) {
 export function buildHealthPayload(args: {
   databaseOk: boolean;
   version: GitVersion;
-  requestsPastHour: ReturnType<typeof getRequestMetrics>;
+  requests: HealthPayload["requests"];
   steamServerBrowser: ReturnType<typeof getSteamServerBrowserMetrics>;
   now?: Date;
   uptimeSeconds?: number;
@@ -47,7 +51,7 @@ export function buildHealthPayload(args: {
     version: args.version,
     timestamp: now.toISOString(),
     uptimeSeconds,
-    requestsPastHour: args.requestsPastHour,
+    requests: args.requests,
     checks: {
       database: {
         ok: args.databaseOk,
@@ -61,7 +65,10 @@ export function getHealthPayload() {
   return buildHealthPayload({
     databaseOk: checkDatabase(),
     version: gitVersion,
-    requestsPastHour: getRequestMetrics(),
+    requests: {
+      hour: getRequestMetrics(),
+      latencyPast100: getRequestLatencyMetrics(),
+    },
     steamServerBrowser: getSteamServerBrowserMetrics(),
   });
 }

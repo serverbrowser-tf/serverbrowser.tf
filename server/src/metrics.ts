@@ -1,6 +1,8 @@
 import { Gauge, Histogram } from "prom-client";
+import { sortedNumberIndex } from "./utils";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const REQUEST_LATENCY_SAMPLE_LIMIT = 100;
 
 export type RefreshPhase =
   | "total"
@@ -28,6 +30,26 @@ interface RequestMetric {
   finishedAt: number;
 }
 
+interface RequestLatencyWindow {
+  ringValues: number[];
+  sortedValues: number[];
+  nextSlot: number;
+  count: number;
+  sum: number;
+}
+
+export interface RequestLatencyStats {
+  count: number;
+  averageMs: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+}
+
+export interface RequestLatencyMetrics {
+  total: RequestLatencyStats;
+  paths: Record<string, RequestLatencyStats>;
+}
+
 interface SteamServerBrowserMetric {
   finishedAt: number;
   successful: boolean;
@@ -43,6 +65,8 @@ export interface SteamServerBrowserMetrics {
 }
 
 const requestMetrics: RequestMetric[] = [];
+const totalRequestLatencyWindow = createRequestLatencyWindow();
+const requestLatencyWindows = new Map<string, RequestLatencyWindow>();
 const steamServerBrowserMetrics: SteamServerBrowserMetric[] = [];
 const refreshDurationSeconds = new Histogram<"phase">({
   name: "serverbrowser_refresh_duration_seconds",
@@ -80,6 +104,112 @@ function prune<T extends { finishedAt: number }>(metrics: T[], now: number) {
   }
 }
 
+function createRequestLatencyWindow(): RequestLatencyWindow {
+  return {
+    ringValues: [],
+    sortedValues: [],
+    nextSlot: 0,
+    count: 0,
+    sum: 0,
+  };
+}
+
+function insertSorted(values: number[], value: number) {
+  values.splice(sortedNumberIndex(values, value), 0, value);
+}
+
+function removeSortedValue(values: number[], value: number) {
+  const index = sortedNumberIndex(values, value);
+  if (values[index] === value) {
+    values.splice(index, 1);
+  }
+}
+
+function recordRequestLatencyWindow(
+  window: RequestLatencyWindow,
+  durationMs: number,
+) {
+  if (window.count < REQUEST_LATENCY_SAMPLE_LIMIT) {
+    window.ringValues.push(durationMs);
+    window.count += 1;
+  } else {
+    const oldValue = window.ringValues[window.nextSlot];
+    removeSortedValue(window.sortedValues, oldValue);
+    window.sum -= oldValue;
+    window.ringValues[window.nextSlot] = durationMs;
+    window.nextSlot = (window.nextSlot + 1) % REQUEST_LATENCY_SAMPLE_LIMIT;
+  }
+
+  insertSorted(window.sortedValues, durationMs);
+  window.sum += durationMs;
+}
+
+function getPercentile(values: number[], percentile: number) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const index = Math.ceil(percentile * values.length) - 1;
+  return values[index];
+}
+
+function getRequestLatencyStats(
+  window: RequestLatencyWindow,
+): RequestLatencyStats {
+  if (window.count === 0) {
+    return {
+      count: 0,
+      averageMs: null,
+      p95Ms: null,
+      p99Ms: null,
+    };
+  }
+
+  return {
+    count: window.count,
+    averageMs: window.sum / window.count,
+    p95Ms: getPercentile(window.sortedValues, 0.95),
+    p99Ms: getPercentile(window.sortedValues, 0.99),
+  };
+}
+
+export function normalizeMetricsPath(path: string) {
+  if (path === "/api/server-details-v2") {
+    return "/api/server-details-v2";
+  }
+  if (path.startsWith("/api/details/")) {
+    return "/api/details/#ip";
+  }
+  if (path.startsWith("/api/server-details/")) {
+    return "/api/server-details/#ip";
+  }
+  if (path.startsWith("/api/server-details-p2/")) {
+    return "/api/server-details-p2/#ip";
+  }
+  if (path.startsWith("/api/server-details-v2/")) {
+    return "/api/server-details-v2/#ip";
+  }
+  if (path.startsWith("/api/maps/details/")) {
+    return "/api/maps/details/#map";
+  }
+
+  switch (path) {
+    case "/api/health":
+    case "/api/location":
+    case "/api/login":
+    case "/api/maps":
+    case "/api/servers":
+    case "/api/servers/all":
+    case "/api/servers.json":
+    case "/api/servers.json/admin-view":
+    case "/api/ban":
+    case "/api/valve/details":
+      return path;
+    default:
+      return "unmatched";
+  }
+}
+
 export function shouldRecordRequestMetric(method: string, path: string) {
   return !(method === "GET" && path === "/api/health");
 }
@@ -104,6 +234,30 @@ export function getRequestMetrics(now = Date.now()) {
   return {
     total: requestMetrics.length,
     statuses,
+  };
+}
+
+export function recordRequestLatency(path: string, durationMs: number) {
+  const normalizedPath = normalizeMetricsPath(path);
+  let pathWindow = requestLatencyWindows.get(normalizedPath);
+  if (pathWindow == null) {
+    pathWindow = createRequestLatencyWindow();
+    requestLatencyWindows.set(normalizedPath, pathWindow);
+  }
+
+  recordRequestLatencyWindow(totalRequestLatencyWindow, durationMs);
+  recordRequestLatencyWindow(pathWindow, durationMs);
+}
+
+export function getRequestLatencyMetrics(): RequestLatencyMetrics {
+  const paths: Record<string, RequestLatencyStats> = {};
+  for (const [path, window] of requestLatencyWindows) {
+    paths[path] = getRequestLatencyStats(window);
+  }
+
+  return {
+    total: getRequestLatencyStats(totalRequestLatencyWindow),
+    paths,
   };
 }
 
@@ -155,10 +309,12 @@ export function recordExpressResponse(
   method: string,
   path: string,
   statusCode: number,
+  durationMs: number,
   finishedAt = Date.now(),
 ) {
   if (shouldRecordRequestMetric(method, path)) {
     recordRequestStatus(statusCode, finishedAt);
+    recordRequestLatency(path, durationMs);
   }
 }
 
@@ -193,6 +349,12 @@ export function recordRefreshServerCount(
 
 export function resetHealthMetricsForTests() {
   requestMetrics.length = 0;
+  totalRequestLatencyWindow.ringValues.length = 0;
+  totalRequestLatencyWindow.sortedValues.length = 0;
+  totalRequestLatencyWindow.nextSlot = 0;
+  totalRequestLatencyWindow.count = 0;
+  totalRequestLatencyWindow.sum = 0;
+  requestLatencyWindows.clear();
   steamServerBrowserMetrics.length = 0;
 }
 

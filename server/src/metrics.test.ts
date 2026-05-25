@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { register } from "prom-client";
 
 import {
+  getRequestLatencyMetrics,
   getRequestMetrics,
   getSteamServerBrowserMetrics,
+  normalizeMetricsPath,
   recordRefreshServerCount,
   recordExpressResponse,
+  recordRequestLatency,
   recordRequestStatus,
   recordSteamServerBrowserFailure,
   recordSteamServerBrowserSuccess,
@@ -57,14 +60,125 @@ describe("health metrics", () => {
     expect(shouldRecordRequestMetric("POST", "/api/health")).toBe(true);
     expect(shouldRecordRequestMetric("GET", "/api/location")).toBe(true);
 
-    recordExpressResponse("GET", "/api/health", 200, now);
-    recordExpressResponse("GET", "/api/location", 200, now);
+    recordExpressResponse("GET", "/api/health", 200, 10, now);
+    recordExpressResponse("GET", "/api/location", 200, 20, now);
 
     expect(getRequestMetrics(now)).toEqual({
       total: 1,
       statuses: {
         "200": 1,
       },
+    });
+    expect(getRequestLatencyMetrics()).toEqual({
+      total: {
+        count: 1,
+        averageMs: 20,
+        p95Ms: 20,
+        p99Ms: 20,
+      },
+      paths: {
+        "/api/location": {
+          count: 1,
+          averageMs: 20,
+          p95Ms: 20,
+          p99Ms: 20,
+        },
+      },
+    });
+  });
+
+  test("normalizes request paths for metrics", () => {
+    expect(normalizeMetricsPath("/api/servers.json/admin-view")).toBe(
+      "/api/servers.json/admin-view",
+    );
+    expect(normalizeMetricsPath("/api/details/127.0.0.1:27015")).toBe(
+      "/api/details/#ip",
+    );
+    expect(normalizeMetricsPath("/api/server-details/127.0.0.1:27015")).toBe(
+      "/api/server-details/#ip",
+    );
+    expect(normalizeMetricsPath("/api/server-details-p2/127.0.0.1:27015")).toBe(
+      "/api/server-details-p2/#ip",
+    );
+    expect(normalizeMetricsPath("/api/server-details-v2/127.0.0.1:27015")).toBe(
+      "/api/server-details-v2/#ip",
+    );
+    expect(normalizeMetricsPath("/api/maps/details/cp_badlands")).toBe(
+      "/api/maps/details/#map",
+    );
+    expect(normalizeMetricsPath("/wp-login.php")).toBe("unmatched");
+  });
+
+  test("groups request latency by normalized path", () => {
+    recordRequestLatency("/api/server-details-v2/127.0.0.1:27015", 30);
+    recordRequestLatency("/api/server-details-v2/192.168.0.1:27015", 10);
+    recordRequestLatency("/api/maps/details/cp_badlands", 50);
+
+    expect(getRequestLatencyMetrics()).toEqual({
+      total: {
+        count: 3,
+        averageMs: 30,
+        p95Ms: 50,
+        p99Ms: 50,
+      },
+      paths: {
+        "/api/server-details-v2/#ip": {
+          count: 2,
+          averageMs: 20,
+          p95Ms: 30,
+          p99Ms: 30,
+        },
+        "/api/maps/details/#map": {
+          count: 1,
+          averageMs: 50,
+          p95Ms: 50,
+          p99Ms: 50,
+        },
+      },
+    });
+  });
+
+  test("keeps only the latest 100 total latency samples in FIFO order", () => {
+    for (let i = 1; i <= 101; i++) {
+      recordRequestLatency(`/api/test-${i}`, i);
+    }
+
+    expect(getRequestLatencyMetrics().total).toEqual({
+      count: 100,
+      averageMs: 51.5,
+      p95Ms: 96,
+      p99Ms: 100,
+    });
+  });
+
+  test("keeps only the latest 100 per-path latency samples in FIFO order", () => {
+    for (let i = 1; i <= 101; i++) {
+      recordRequestLatency("/api/servers", i);
+    }
+
+    expect(getRequestLatencyMetrics().paths["/api/servers"]).toEqual({
+      count: 100,
+      averageMs: 51.5,
+      p95Ms: 96,
+      p99Ms: 100,
+    });
+  });
+
+  test("replaces one duplicate sorted latency value at a time", () => {
+    for (const durationMs of [5, 5, 10]) {
+      recordRequestLatency("/api/servers", durationMs);
+    }
+    for (let i = 0; i < 97; i++) {
+      recordRequestLatency("/api/servers", 100);
+    }
+
+    recordRequestLatency("/api/servers", 1);
+
+    expect(getRequestLatencyMetrics().paths["/api/servers"]).toEqual({
+      count: 100,
+      averageMs: 97.16,
+      p95Ms: 100,
+      p99Ms: 100,
     });
   });
 

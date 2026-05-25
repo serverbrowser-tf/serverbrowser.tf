@@ -52,6 +52,22 @@ export function assert(value: boolean, error: string): asserts value {
   }
 }
 
+export function sortedNumberIndex(values: readonly number[], value: number) {
+  let low = 0;
+  let high = values.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (values[mid] < value) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+}
+
 export async function scheduleDaily(
   taskFn: () => Promise<void>,
 ): Promise<void> {
@@ -112,4 +128,3 @@ export function makeAsyncIterator<T>() {
     },
   };
 }
-

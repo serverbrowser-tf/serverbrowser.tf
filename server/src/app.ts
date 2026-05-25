@@ -8,7 +8,7 @@ import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
 import { getDb, scheduleDbOptimize } from "./db";
-import { recordExpressResponse } from "./metrics";
+import { normalizeMetricsPath, recordExpressResponse } from "./metrics";
 import { scheduleServerObservationArchives } from "./observations";
 import { startServerRefreshLoop } from "./servers/refresh";
 import { loadInitialServersJson } from "./servers/store";
@@ -38,42 +38,6 @@ function isMetricsBasicAuthValid(header: string | undefined) {
   );
 }
 
-function normalizeMetricsPath(req: express.Request) {
-  if (req.path === "/api/server-details-v2") {
-    return "/api/server-details-v2";
-  }
-  if (req.path.startsWith("/api/details/")) {
-    return "/api/details/#ip";
-  }
-  if (req.path.startsWith("/api/server-details/")) {
-    return "/api/server-details/#ip";
-  }
-  if (req.path.startsWith("/api/server-details-p2/")) {
-    return "/api/server-details-p2/#ip";
-  }
-  if (req.path.startsWith("/api/server-details-v2/")) {
-    return "/api/server-details-v2/#ip";
-  }
-  if (req.path.startsWith("/api/maps/details/")) {
-    return "/api/maps/details/#map";
-  }
-
-  switch (req.path) {
-    case "/api/health":
-    case "/api/location":
-    case "/api/login":
-    case "/api/maps":
-    case "/api/servers":
-    case "/api/servers/all":
-    case "/api/servers.json":
-    case "/api/ban":
-    case "/api/valve/details":
-      return req.path;
-    default:
-      return "unmatched";
-  }
-}
-
 app.use(cookieParser());
 app.use(cors());
 app.use(express.json());
@@ -100,7 +64,7 @@ app.use(
       collectDefaultMetrics: {},
     },
     metricsPath: "/api/health/metrics",
-    normalizePath: normalizeMetricsPath,
+    normalizePath: (req) => normalizeMetricsPath(req.path),
     bypass: {
       onRequest(req) {
         return req.path === "/api/health" || req.path === "/api/health/metrics";
@@ -109,8 +73,10 @@ app.use(
   }),
 );
 app.use((req, res, next) => {
+  const startedAt = process.hrtime.bigint();
   res.on("finish", () => {
-    recordExpressResponse(req.method, req.path, res.statusCode);
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    recordExpressResponse(req.method, req.path, res.statusCode, durationMs);
   });
   next();
 });

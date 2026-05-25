@@ -9,12 +9,31 @@ const version = {
   commit: "abcdef123",
   message: "commit subject",
 };
-const requestsPastHour = {
+const requestHour = {
   total: 1250,
   statuses: {
     "200": 1170,
     "304": 72,
     "500": 8,
+  },
+};
+const requests = {
+  hour: requestHour,
+  latencyPast100: {
+    total: {
+      count: 3,
+      averageMs: 20,
+      p95Ms: 30,
+      p99Ms: 30,
+    },
+    paths: {
+      "/api/servers": {
+        count: 3,
+        averageMs: 20,
+        p95Ms: 30,
+        p99Ms: 30,
+      },
+    },
   },
 };
 const healthySteam = {
@@ -31,7 +50,7 @@ describe("health payload", () => {
       buildHealthPayload({
         databaseOk: true,
         version,
-        requestsPastHour,
+        requests,
         steamServerBrowser: healthySteam,
         now,
         uptimeSeconds: 1234,
@@ -41,7 +60,7 @@ describe("health payload", () => {
       version,
       timestamp: "2026-05-23T22:30:00.000Z",
       uptimeSeconds: 1234,
-      requestsPastHour,
+      requests,
       checks: {
         database: {
           ok: true,
@@ -55,7 +74,7 @@ describe("health payload", () => {
     const payload = buildHealthPayload({
       databaseOk: false,
       version,
-      requestsPastHour,
+      requests,
       steamServerBrowser: healthySteam,
       now,
       uptimeSeconds: 1234,
@@ -69,7 +88,7 @@ describe("health payload", () => {
     const payload = buildHealthPayload({
       databaseOk: true,
       version,
-      requestsPastHour,
+      requests,
       steamServerBrowser: {
         ok: false,
         lastCallAt: "2026-05-23T22:29:00.000Z",
@@ -89,7 +108,7 @@ describe("health payload", () => {
     const payload = buildHealthPayload({
       databaseOk: true,
       version: nullGitVersion(),
-      requestsPastHour,
+      requests,
       steamServerBrowser: healthySteam,
       now,
       uptimeSeconds: 1234,
