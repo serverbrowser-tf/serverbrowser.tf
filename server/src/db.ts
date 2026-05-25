@@ -738,11 +738,15 @@ LEFT JOIN maps m ON m.id = smh.map_id
       LEFT JOIN maps m ON m.id = s.map_id
       LEFT JOIN blacklist bl ON bl.server_id = s.id
       LEFT JOIN (
-        SELECT sp.server_id, (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
-        FROM server_players sp
-        WHERE sp.player_count >= 10
+        SELECT active_s.id AS server_id,
+               (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
+        FROM servers active_s
+        CROSS JOIN server_players sp INDEXED BY idx_server_players_active_hours
+        WHERE active_s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+        AND sp.server_id = active_s.id
+        AND sp.player_count >= 10
         AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
-        GROUP BY sp.server_id
+        GROUP BY active_s.id
       ) sa on sa.server_id = s.id
       WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
       GROUP BY s.id
@@ -771,7 +775,6 @@ LEFT JOIN maps m ON m.id = smh.map_id
       >();
       const ipMapping = new Map<string, UnhydratedServerInfo>();
       const steamidMapping = new Map<string, UnhydratedServerInfo>();
-      const ips: string[] = [];
 
       for (const row of query.iterate()) {
         const server = {
@@ -790,7 +793,6 @@ LEFT JOIN maps m ON m.id = smh.map_id
           active_hours: row.active_hours,
           is_valve: row.is_valve,
         };
-        ips.push(row.ip);
         ipMapping.set(row.ip, server);
         if (row.steamid) {
           steamidMapping.set(row.steamid, server);
@@ -806,9 +808,11 @@ LEFT JOIN maps m ON m.id = smh.map_id
         });
       }
 
+      const ips = [...ipMapping.keys()];
       const geoips = await serverLocations.loadMany(
         ips.map((ip) => ip.split(":")[0]),
       );
+
       for (let i = 0; i < ips.length; i++) {
         const ip = ips[i];
         const geoip = geoips[i];
