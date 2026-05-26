@@ -8,6 +8,7 @@ import { scheduleDaily } from "./utils";
 
 const gzipAsync = promisify(gzip);
 const ARCHIVE_HEADER = "observed_at,source,ip,name,steamid,region,map,players";
+const DEFAULT_ARCHIVE_BATCH_SIZE = 5000;
 const TIME_ZONE = "America/New_York";
 const REGION_NAMES = new Map<number, string>([
   [0, "US East"],
@@ -204,12 +205,13 @@ export async function archiveServerObservations(args: {
   db: Database;
   archiveDir?: string;
   now?: Date;
+  batchSize?: number;
 }) {
   const archiveDir = args.archiveDir ?? defaultObservationArchiveDir();
   const cutoff = getArchiveCutoffUnix(args.now ?? new Date());
-  const rows = args.db
-    .prepare<ArchiveRow, [number]>(
-      `
+  const batchSize = Math.max(1, args.batchSize ?? DEFAULT_ARCHIVE_BATCH_SIZE);
+  const selectRows = args.db.prepare<ArchiveRow, [number, number]>(
+    `
 SELECT so.id,
        so.observed_at,
        CASE WHEN s.is_valve = 1 THEN 'valve' ELSE 'community' END source,
@@ -223,41 +225,50 @@ FROM server_observations so
 INNER JOIN servers s ON s.id = so.server_id
 LEFT JOIN maps m ON m.id = so.map_id
 WHERE so.observed_at < ?
-ORDER BY s.steamid IS NULL, s.steamid, so.observed_at, so.id;
+ORDER BY s.steamid IS NULL, s.steamid, so.observed_at, so.id
+LIMIT ?;
 `,
-    )
-    .all(cutoff);
+  );
 
-  if (rows.length === 0) {
-    return { archivedRows: 0, files: [] as string[] };
-  }
-
-  await fs.mkdir(archiveDir, { recursive: true });
-  const byWeek = new Map<string, ArchiveRow[]>();
-  for (const row of rows) {
-    const week = archiveWeekForTimestamp(row.observed_at);
-    const weekRows = byWeek.get(week) ?? [];
-    weekRows.push(row);
-    byWeek.set(week, weekRows);
-  }
-
-  const files: string[] = [];
+  const files = new Set<string>();
   let archivedRows = 0;
-  for (const [week, weekRows] of byWeek) {
-    const filePath = path.join(archiveDir, `${week}.csv.gz`);
-    await gzipAppendCsv(
-      filePath,
-      weekRows.map((row) => rowToCsv(row)),
-    );
-    deleteArchivedRows(
-      args.db,
-      weekRows.map((row) => row.id),
-    );
-    files.push(filePath);
-    archivedRows += weekRows.length;
+  let createdArchiveDir = false;
+
+  while (true) {
+    const rows = selectRows.all(cutoff, batchSize);
+    if (rows.length === 0) {
+      break;
+    }
+
+    if (!createdArchiveDir) {
+      await fs.mkdir(archiveDir, { recursive: true });
+      createdArchiveDir = true;
+    }
+
+    const byWeek = new Map<string, ArchiveRow[]>();
+    for (const row of rows) {
+      const week = archiveWeekForTimestamp(row.observed_at);
+      const weekRows = byWeek.get(week) ?? [];
+      weekRows.push(row);
+      byWeek.set(week, weekRows);
+    }
+
+    for (const [week, weekRows] of byWeek) {
+      const filePath = path.join(archiveDir, `${week}.csv.gz`);
+      await gzipAppendCsv(
+        filePath,
+        weekRows.map((row) => rowToCsv(row)),
+      );
+      deleteArchivedRows(
+        args.db,
+        weekRows.map((row) => row.id),
+      );
+      files.add(filePath);
+      archivedRows += weekRows.length;
+    }
   }
 
-  return { archivedRows, files };
+  return { archivedRows, files: [...files] };
 }
 
 export function scheduleServerObservationArchives(db: Database) {

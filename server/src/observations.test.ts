@@ -372,6 +372,64 @@ VALUES (?, ?, ?, ?)
     expect(csv).toContain("old,row\n1779120000,community,127.0.0.4:27015");
   });
 
+  test("archives observations in batches without repeating headers", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    const archiveDir = await createTempDir();
+    await updater.updateServers([
+      server({
+        ip: "127.0.0.11:27015",
+        server: "127.0.0.11:27015",
+        steamid: "11",
+      }),
+    ]);
+    const serverId = await buildDataloaders(db).serverId.load("11" as any);
+    const mapId = await buildDataloaders(db).mapId.load("cp_badlands");
+
+    db.prepare(
+      `
+INSERT INTO server_observations (server_id, map_id, observed_at, players)
+VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
+`,
+    ).run(
+      serverId,
+      mapId,
+      Date.parse("2026-05-18T16:00:00Z") / 1000,
+      11,
+      serverId,
+      mapId,
+      Date.parse("2026-05-19T16:00:00Z") / 1000,
+      12,
+      serverId,
+      mapId,
+      Date.parse("2026-05-20T16:00:00Z") / 1000,
+      13,
+    );
+
+    const result = await archiveServerObservations({
+      db,
+      archiveDir,
+      now: new Date("2026-05-23T16:00:00Z"),
+      batchSize: 1,
+    });
+
+    expect(result.archivedRows).toBe(3);
+    const csv = await readGzipCsv(
+      path.join(archiveDir, "2026-05-17_to_2026-05-23.csv.gz"),
+    );
+    expect(
+      csv.match(/observed_at,source,ip,name,steamid,region,map,players/g),
+    ).toHaveLength(1);
+    expect(csv.trimEnd().split("\n")).toHaveLength(4);
+    const remaining = db
+      .query<
+        { count: number },
+        []
+      >("SELECT COUNT(*) count FROM server_observations")
+      .get();
+    expect(remaining?.count).toBe(0);
+  });
+
   test("derives archived source from server is_valve", async () => {
     const db = createDb();
     const updater = buildUpdaterService(db);
