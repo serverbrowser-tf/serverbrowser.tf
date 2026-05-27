@@ -15,7 +15,7 @@ router.get(
     const body =
       [...dataloaders.listMaps()].map((map) => JSON.stringify(map)).join("\n") +
       "\n";
-    res.send(body);
+    res.end(body);
   }),
 );
 
