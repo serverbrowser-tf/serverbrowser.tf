@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
+import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
-import { gzip } from "zlib";
-import { promisify } from "util";
+import { once } from "events";
+import { createGzip } from "zlib";
 
 import { scheduleDaily } from "./utils";
 
-const gzipAsync = promisify(gzip);
 const ARCHIVE_HEADER = "observed_at,source,ip,name,steamid,region,map,players";
 const DEFAULT_ARCHIVE_BATCH_SIZE = 5000;
 const TIME_ZONE = "America/New_York";
@@ -193,12 +193,73 @@ function deleteArchivedRows(db: Database, ids: number[]) {
   }
 }
 
-async function gzipAppendCsv(filePath: string, csvRows: string[]) {
-  const stat = await fs.stat(filePath).catch(() => null);
-  const includeHeader = stat == null || stat.size === 0;
-  const csv = `${includeHeader ? `${ARCHIVE_HEADER}\n` : ""}${csvRows.join("\n")}\n`;
-  const compressed = await gzipAsync(csv as any);
-  await fs.appendFile(filePath, compressed as any);
+class CsvGzipAppendWriter {
+  private readonly gzip = createGzip();
+  private readonly output: ReturnType<typeof createWriteStream>;
+  private readonly finished: Promise<unknown[]>;
+  private failed: Error | null = null;
+
+  private constructor(filePath: string, includeHeader: boolean) {
+    this.output = createWriteStream(filePath, { flags: "a" });
+    this.finished = once(this.output, "finish");
+    this.gzip.on("error", (error) => {
+      this.failed = error;
+      this.output.destroy(error);
+    });
+    this.output.on("error", (error) => {
+      this.failed = error;
+      this.gzip.destroy(error);
+    });
+    this.gzip.pipe(this.output);
+    if (includeHeader) {
+      this.write(`${ARCHIVE_HEADER}\n`);
+    }
+  }
+
+  static async open(filePath: string) {
+    const stat = await fs.stat(filePath).catch(() => null);
+    return new CsvGzipAppendWriter(filePath, stat == null || stat.size === 0);
+  }
+
+  write(row: string) {
+    if (this.failed) {
+      throw this.failed;
+    }
+    if (!this.gzip.write(row)) {
+      return once(this.gzip, "drain");
+    }
+    return null;
+  }
+
+  async writeRow(row: ArchiveRow) {
+    await this.write(`${rowToCsv(row)}\n`);
+  }
+
+  async close() {
+    this.gzip.end();
+    await this.finished;
+    if (this.failed) {
+      throw this.failed;
+    }
+  }
+}
+
+async function getCsvGzipWriter(
+  writers: Map<string, CsvGzipAppendWriter>,
+  filePath: string,
+) {
+  let writer = writers.get(filePath);
+  if (!writer) {
+    writer = await CsvGzipAppendWriter.open(filePath);
+    writers.set(filePath, writer);
+  }
+  return writer;
+}
+
+async function closeCsvGzipWriters(writers: Iterable<CsvGzipAppendWriter>) {
+  for (const writer of writers) {
+    await writer.close();
+  }
 }
 
 export async function archiveServerObservations(args: {
@@ -235,37 +296,36 @@ LIMIT ?;
   let createdArchiveDir = false;
 
   while (true) {
-    const rows = selectRows.all(cutoff, batchSize);
-    if (rows.length === 0) {
-      break;
-    }
+    const writers = new Map<string, CsvGzipAppendWriter>();
+    const ids: number[] = [];
+    try {
+      for (const row of selectRows.iterate(cutoff, batchSize)) {
+        ids.push(row.id);
 
-    if (!createdArchiveDir) {
-      await fs.mkdir(archiveDir, { recursive: true });
-      createdArchiveDir = true;
-    }
+        if (!createdArchiveDir) {
+          await fs.mkdir(archiveDir, { recursive: true });
+          createdArchiveDir = true;
+        }
 
-    const byWeek = new Map<string, ArchiveRow[]>();
-    for (const row of rows) {
-      const week = archiveWeekForTimestamp(row.observed_at);
-      const weekRows = byWeek.get(week) ?? [];
-      weekRows.push(row);
-      byWeek.set(week, weekRows);
-    }
-
-    for (const [week, weekRows] of byWeek) {
-      const filePath = path.join(archiveDir, `${week}.csv.gz`);
-      await gzipAppendCsv(
-        filePath,
-        weekRows.map((row) => rowToCsv(row)),
+        const week = archiveWeekForTimestamp(row.observed_at);
+        const filePath = path.join(archiveDir, `${week}.csv.gz`);
+        const writer = await getCsvGzipWriter(writers, filePath);
+        await writer.writeRow(row);
+        files.add(filePath);
+      }
+      if (ids.length === 0) {
+        break;
+      }
+      await closeCsvGzipWriters(writers.values());
+    } catch (error) {
+      await Promise.allSettled(
+        [...writers.values()].map((writer) => writer.close()),
       );
-      deleteArchivedRows(
-        args.db,
-        weekRows.map((row) => row.id),
-      );
-      files.add(filePath);
-      archivedRows += weekRows.length;
+      throw error;
     }
+
+    deleteArchivedRows(args.db, ids);
+    archivedRows += ids.length;
   }
 
   return { archivedRows, files: [...files] };
