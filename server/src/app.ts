@@ -87,8 +87,10 @@ app.use(servers);
 app.use(misc);
 
 async function main() {
+  console.time("Initial startup");
   await loadInitialServersJson();
   void startServerRefreshLoop();
+  console.timeEnd("Initial startup");
 
   app.listen(PORT, "127.0.0.1", () => {
     console.log(`Server is listening on port ${PORT}`);
