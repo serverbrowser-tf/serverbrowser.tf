@@ -56,6 +56,7 @@ function migrate(db: Database) {
 export var db: Database;
 
 function configureDb(db: Database) {
+  db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run("PRAGMA cache_size = -65536");
   db.run("PRAGMA temp_store = MEMORY");

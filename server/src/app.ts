@@ -10,11 +10,11 @@ import misc from "./api/misc";
 import { getDb, scheduleDbOptimize } from "./db";
 import { normalizeMetricsPath, recordExpressResponse } from "./metrics";
 import { scheduleServerObservationArchives } from "./observations";
-import { startServerRefreshLoop } from "./servers/refresh";
+import { startRefreshWorker } from "./refresh-worker-supervisor";
 import { loadInitialServersJson } from "./servers/store";
 
 const app = express();
-const PORT = 3030;
+const PORT = Number(process.env.PORT ?? 3030);
 const db = getDb();
 
 scheduleDbOptimize();
@@ -89,7 +89,7 @@ app.use(misc);
 async function main() {
   console.time("Initial startup");
   await loadInitialServersJson();
-  void startServerRefreshLoop();
+  startRefreshWorker();
   console.timeEnd("Initial startup");
 
   app.listen(PORT, "127.0.0.1", () => {

@@ -6,6 +6,7 @@ import {
   getRequestMetrics,
   getSteamServerBrowserMetrics,
 } from "./metrics";
+import { getRefreshWorkerHealth } from "./refresh-worker-supervisor";
 import { gitVersion, GitVersion } from "./version";
 
 export interface HealthPayload {
@@ -21,6 +22,7 @@ export interface HealthPayload {
     database: {
       ok: boolean;
     };
+    refreshWorker: ReturnType<typeof getRefreshWorkerHealth>;
     steamServerBrowser: ReturnType<typeof getSteamServerBrowserMetrics>;
   };
 }
@@ -38,13 +40,15 @@ export function buildHealthPayload(args: {
   databaseOk: boolean;
   version: GitVersion;
   requests: HealthPayload["requests"];
+  refreshWorker: ReturnType<typeof getRefreshWorkerHealth>;
   steamServerBrowser: ReturnType<typeof getSteamServerBrowserMetrics>;
   now?: Date;
   uptimeSeconds?: number;
 }): HealthPayload {
   const now = args.now ?? new Date();
   const uptimeSeconds = args.uptimeSeconds ?? Math.floor(process.uptime());
-  const ok = args.databaseOk && args.steamServerBrowser.ok;
+  const ok =
+    args.databaseOk && args.refreshWorker.ok && args.steamServerBrowser.ok;
 
   return {
     ok,
@@ -56,6 +60,7 @@ export function buildHealthPayload(args: {
       database: {
         ok: args.databaseOk,
       },
+      refreshWorker: args.refreshWorker,
       steamServerBrowser: args.steamServerBrowser,
     },
   };
@@ -69,6 +74,7 @@ export function getHealthPayload() {
       hour: getRequestMetrics(),
       latencyPast100: getRequestLatencyMetrics(),
     },
+    refreshWorker: getRefreshWorkerHealth(),
     steamServerBrowser: getSteamServerBrowserMetrics(),
   });
 }

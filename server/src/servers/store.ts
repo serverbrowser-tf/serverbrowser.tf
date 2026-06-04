@@ -23,6 +23,18 @@ let allServersByIp = new Map<string, ServerInfo>();
 let allServersBySteamId = new Map<string, ServerInfo>();
 let servers: Record<string, ServerInfo[]> = {};
 
+export interface ServerStoreSnapshot {
+  id: string;
+  lastRequestTime: number;
+  lastSteamQueryAt: number;
+  nextQueueTime: number;
+  blacklist: Array<[string, string]>;
+  allServers: ServerInfo[];
+  allServersBySteamId: Array<[string, string]>;
+  allServersByBlacklist: Array<[string | null, string[]]>;
+  servers: Record<string, ServerInfo[]>;
+}
+
 interface ServersJsonArchive {
   lastSteamQueryAt?: number;
   servers: Record<string, ServerInfo[]>;
@@ -227,6 +239,62 @@ export function bumpCacheVersion() {
 
 export function getCacheState() {
   return { id, nextQueueTime };
+}
+
+export function getServerStoreSnapshot(): ServerStoreSnapshot {
+  return {
+    id,
+    lastRequestTime,
+    lastSteamQueryAt,
+    nextQueueTime,
+    blacklist: Array.from(blacklist.entries()),
+    allServers: Array.from(allServersByIp.values()),
+    allServersBySteamId: Array.from(allServersBySteamId.entries()).map(
+      ([steamid, server]) => [steamid, server.ip],
+    ),
+    allServersByBlacklist: Array.from(allServersByBlacklist.entries()).map(
+      ([reason, serverMap]) => [reason, Array.from(serverMap.keys())],
+    ),
+    servers,
+  };
+}
+
+export function applyServerStoreSnapshot(snapshot: ServerStoreSnapshot) {
+  id = snapshot.id;
+  lastRequestTime = snapshot.lastRequestTime;
+  lastSteamQueryAt = snapshot.lastSteamQueryAt;
+  nextQueueTime = snapshot.nextQueueTime;
+  blacklist = new Map(snapshot.blacklist);
+
+  allServersByIp = new Map(
+    snapshot.allServers.map((server) => [server.ip, server]),
+  );
+  allServersBySteamId = new Map();
+  for (const [steamid, ip] of snapshot.allServersBySteamId) {
+    const server = allServersByIp.get(ip);
+    if (server) {
+      allServersBySteamId.set(steamid, server);
+    }
+  }
+
+  allServersByBlacklist = new Map();
+  for (const [reason, ips] of snapshot.allServersByBlacklist) {
+    const serverMap = new Map<string, ServerInfo>();
+    for (const ip of ips) {
+      const server = allServersByIp.get(ip);
+      if (server) {
+        serverMap.set(ip, server);
+      }
+    }
+    allServersByBlacklist.set(reason, serverMap);
+  }
+
+  servers = Object.fromEntries(
+    Object.entries(snapshot.servers).map(([category, categoryServers]) => [
+      category,
+      categoryServers.map((server) => allServersByIp.get(server.ip) ?? server),
+    ]),
+  );
 }
 
 export async function resolveSteamId(ip: string): Promise<SteamId | null> {

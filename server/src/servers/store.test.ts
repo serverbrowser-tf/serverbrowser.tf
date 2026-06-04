@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { HydratedServerInfo, SteamWebApiServerInfo } from "../types";
 import {
+  applyServerStoreSnapshot,
+  getHydratedServerByIp,
   getOnlineServers,
+  getServerStoreSnapshot,
   mergeLiveServers,
   parseServersJsonArchive,
   replaceServerIndexes,
@@ -162,6 +165,43 @@ describe("Valve server classification", () => {
         hasUsersPlaying: false,
       }).map((server) => server.ip),
     ).toEqual(["127.0.0.1:27015"]);
+    expect(
+      getOnlineServers({
+        category: "all",
+        hasUsersPlaying: false,
+      }).map((server) => server.ip),
+    ).toEqual(["127.0.0.2:27015"]);
+  });
+
+  test("round-trips server store snapshots", () => {
+    replaceServerIndexes({
+      reasonMapping: new Map(),
+      ipMapping: new Map(),
+      steamidMapping: new Map(),
+    });
+    setBlacklist(new Map());
+
+    mergeLiveServers([
+      steamServer({
+        addr: "127.0.0.2:27015",
+        steamid: "2",
+        name: "Community Server",
+        gametype: "vanilla",
+      }),
+    ]);
+    const snapshot = getServerStoreSnapshot();
+
+    replaceServerIndexes({
+      reasonMapping: new Map(),
+      ipMapping: new Map(),
+      steamidMapping: new Map(),
+    });
+    setBlacklist(new Map());
+    applyServerStoreSnapshot(snapshot);
+
+    expect(getHydratedServerByIp("127.0.0.2:27015")?.name).toBe(
+      "Community Server",
+    );
     expect(
       getOnlineServers({
         category: "all",

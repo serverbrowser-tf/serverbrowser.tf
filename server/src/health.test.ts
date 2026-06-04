@@ -43,6 +43,15 @@ const healthySteam = {
   errorsPastHour: 0,
   lastError: null,
 };
+const healthyWorker = {
+  ok: true,
+  running: true,
+  lastSnapshotAt: "2026-05-23T22:29:30.000Z",
+  snapshotAgeMs: 30_000,
+  staleAfterMs: 300_000,
+  lastError: null,
+  restartCount: 0,
+};
 
 describe("health payload", () => {
   test("builds the healthy response shape", () => {
@@ -51,6 +60,7 @@ describe("health payload", () => {
         databaseOk: true,
         version,
         requests,
+        refreshWorker: healthyWorker,
         steamServerBrowser: healthySteam,
         now,
         uptimeSeconds: 1234,
@@ -65,6 +75,7 @@ describe("health payload", () => {
         database: {
           ok: true,
         },
+        refreshWorker: healthyWorker,
         steamServerBrowser: healthySteam,
       },
     });
@@ -75,6 +86,7 @@ describe("health payload", () => {
       databaseOk: false,
       version,
       requests,
+      refreshWorker: healthyWorker,
       steamServerBrowser: healthySteam,
       now,
       uptimeSeconds: 1234,
@@ -89,6 +101,7 @@ describe("health payload", () => {
       databaseOk: true,
       version,
       requests,
+      refreshWorker: healthyWorker,
       steamServerBrowser: {
         ok: false,
         lastCallAt: "2026-05-23T22:29:00.000Z",
@@ -104,11 +117,30 @@ describe("health payload", () => {
     expect(payload.checks.steamServerBrowser.lastSuccessful).toBe(false);
   });
 
+  test("reports unhealthy when the refresh worker is stale", () => {
+    const payload = buildHealthPayload({
+      databaseOk: true,
+      version,
+      requests,
+      refreshWorker: {
+        ...healthyWorker,
+        ok: false,
+      },
+      steamServerBrowser: healthySteam,
+      now,
+      uptimeSeconds: 1234,
+    });
+
+    expect(payload.ok).toBe(false);
+    expect(payload.checks.refreshWorker.ok).toBe(false);
+  });
+
   test("uses null version fields when git metadata is unavailable", () => {
     const payload = buildHealthPayload({
       databaseOk: true,
       version: nullGitVersion(),
       requests,
+      refreshWorker: healthyWorker,
       steamServerBrowser: healthySteam,
       now,
       uptimeSeconds: 1234,

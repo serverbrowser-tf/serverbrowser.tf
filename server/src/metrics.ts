@@ -89,6 +89,14 @@ const refreshServerCount = new Gauge<"source">({
   help: "Most recent server count seen during refresh.",
   labelNames: ["source"],
 });
+const refreshWorkerLastSnapshotAtSeconds = new Gauge({
+  name: "serverbrowser_refresh_worker_last_snapshot_at_seconds",
+  help: "Unix timestamp when the web process last applied a refresh worker snapshot.",
+});
+const refreshWorkerRestarts = new Gauge({
+  name: "serverbrowser_refresh_worker_restarts",
+  help: "Number of refresh worker starts observed by the web process.",
+});
 
 function prune<T extends { finishedAt: number }>(metrics: T[], now: number) {
   const oldestAllowed = now - ONE_HOUR_MS;
@@ -345,6 +353,14 @@ export function recordRefreshServerCount(
   count: number,
 ) {
   refreshServerCount.set({ source }, count);
+}
+
+export function recordRefreshWorkerSnapshot(snapshotAt = Date.now()) {
+  refreshWorkerLastSnapshotAtSeconds.set(snapshotAt / 1000);
+}
+
+export function recordRefreshWorkerRestart(count: number) {
+  refreshWorkerRestarts.set(count);
 }
 
 export function resetHealthMetricsForTests() {

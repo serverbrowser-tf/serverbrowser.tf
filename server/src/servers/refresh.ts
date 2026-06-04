@@ -187,7 +187,10 @@ async function refreshServersOnce(args: {
   }
 }
 
-export async function startServerRefreshLoop() {
+export async function startServerRefreshLoop(args: {
+  onSnapshot?: () => void | Promise<void>;
+} = {}) {
+  const { onSnapshot } = args;
   const dataloaders = buildDataloaders(db);
   const updater = buildUpdaterService(db);
   setBlacklist(dataloaders.blacklist());
@@ -208,12 +211,14 @@ export async function startServerRefreshLoop() {
       console.log("Found", allServers.ipMapping.size, "servers from db");
       replaceServerIndexes(allServers);
       setBlacklist(dataloaders.blacklist());
+      await onSnapshot?.();
       console.timeEnd("all servers");
     }
 
     await refreshServersOnce({ dataloaders, updater });
 
     markRefreshScheduled(refreshPeriodMs);
+    await onSnapshot?.();
 
     if (queriesAllServersThisLoop) {
       lastQueriedAllServers = Date.now();

@@ -2,6 +2,7 @@ import { NextFunction, Request, Response, Router } from "express";
 import * as v from "valibot";
 
 import { buildDataloaders, buildUpdaterService, db } from "../db";
+import { sendRefreshWorkerMessage } from "../refresh-worker-supervisor";
 import { ServerInfo } from "../types";
 import { asyncify } from "../utils";
 import {
@@ -193,6 +194,7 @@ apiRouter.post(
       await updater.deleteServerFromBlacklist(ip);
     }
     await applyBan(ip, reason);
+    sendRefreshWorkerMessage({ type: "ban", ip, reason });
     res.status(200).json({
       success: true,
     });
