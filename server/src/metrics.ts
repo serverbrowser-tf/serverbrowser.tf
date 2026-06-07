@@ -17,13 +17,13 @@ export type RefreshPhase =
   | "update_player_history"
   | "cache_persist"
   | "all_servers_db"
-  | "all_servers_steam";
+  | "non_valve_server_list";
 
 export type RefreshServerSource =
   | "steam_server_list"
   | "live_merged"
   | "all_servers_db"
-  | "all_servers_steam";
+  | "non_valve_server_list";
 
 interface RequestMetric {
   statusCode: number;

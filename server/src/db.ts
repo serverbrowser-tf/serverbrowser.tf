@@ -526,7 +526,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
     FROM server_map_hours smh
     INNER JOIN servers s ON s.id = smh.server_id
     WHERE smh.map_id in ({})
-    AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+    AND s.last_online >= CAST(strftime('%s', 'now', '-30 minutes') AS INTEGER)
     AND s.is_valve = 0
     AND smh.date >= date('now', '-28 days')
     GROUP BY smh.map_id, smh.server_id
@@ -674,7 +674,7 @@ WITH active_servers AS MATERIALIZED (
     LEFT JOIN blacklist ON s.id = blacklist.server_id
     WHERE blacklist.server_id IS NULL
     AND s.is_valve = 0
-    AND s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+    AND s.last_online >= CAST(strftime('%s', 'now', '-30 minutes') AS INTEGER)
 ), latest AS MATERIALIZED (
     SELECT
         smh.server_id,
@@ -710,7 +710,7 @@ LEFT JOIN maps m ON m.id = smh.map_id
       FROM server_map_hours smh
       INNER JOIN maps m ON m.id = smh.map_id
       INNER JOIN servers s on s.id = smh.server_id
-      WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+      WHERE s.last_online >= CAST(strftime('%s', 'now', '-30 minutes') AS INTEGER)
       AND s.is_valve = 0
       AND smh.date >= date('now', '-28 days')
       GROUP BY smh.map_id
@@ -743,13 +743,13 @@ LEFT JOIN maps m ON m.id = smh.map_id
                (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
         FROM servers active_s
         CROSS JOIN server_players sp INDEXED BY idx_server_players_active_hours
-        WHERE active_s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+        WHERE active_s.last_online >= CAST(strftime('%s', 'now', '-30 minutes') AS INTEGER)
         AND sp.server_id = active_s.id
         AND sp.player_count >= 10
         AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
         GROUP BY active_s.id
       ) sa on sa.server_id = s.id
-      WHERE s.last_online >= CAST(strftime('%s', date('now', '-3 days')) AS INTEGER)
+      WHERE s.last_online >= CAST(strftime('%s', 'now', '-30 minutes') AS INTEGER)
       GROUP BY s.id
       `;
 
@@ -1202,6 +1202,20 @@ WHERE steamid IN {};
         );
         query.run(...chunked);
       }
+    },
+    updateServerVisibilityBySteamId(
+      servers: Array<{ steamid: string; visibility: 0 | 1 }>,
+    ) {
+      const query = db.prepare(`
+UPDATE servers
+SET visibility = ?
+WHERE steamid = ?;
+`);
+      db.transaction(() => {
+        for (const server of servers) {
+          query.run(server.visibility, server.steamid);
+        }
+      })();
     },
     updateRetardedDipshitServers(retardedDipshitServers: ServerInfo[]) {
       let grouped: Record<

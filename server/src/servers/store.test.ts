@@ -8,7 +8,10 @@ import {
   getServerStoreSnapshot,
   mergeLiveServers,
   parseServersJsonArchive,
+  removeEmptyValveServers,
+  removeMissingNonValveServers,
   replaceServerIndexes,
+  setServerVisibility,
   setBlacklist,
 } from "./store";
 import { isValveServer } from "./valve";
@@ -208,5 +211,107 @@ describe("Valve server classification", () => {
         hasUsersPlaying: false,
       }).map((server) => server.ip),
     ).toEqual(["127.0.0.2:27015"]);
+  });
+
+  test("updates live visibility by Steam ID", () => {
+    replaceServerIndexes({
+      reasonMapping: new Map(),
+      ipMapping: new Map(),
+      steamidMapping: new Map(),
+    });
+    setBlacklist(new Map());
+    mergeLiveServers([steamServer({ visibility: 0 })]);
+
+    setServerVisibility("1", 1);
+
+    expect(getHydratedServerByIp("127.0.0.1:27015")?.visibility).toBe(1);
+  });
+
+  test("reconciles only non-Valve servers from an authoritative snapshot", () => {
+    replaceServerIndexes({
+      reasonMapping: new Map(),
+      ipMapping: new Map(),
+      steamidMapping: new Map(),
+    });
+    setBlacklist(new Map());
+    mergeLiveServers([
+      steamServer({
+        addr: "127.0.0.1:27015",
+        steamid: "1",
+        name: "Missing Community Server",
+      }),
+      steamServer({
+        addr: "127.0.0.2:27015",
+        steamid: "2",
+        name: "Present Community Server",
+      }),
+      steamServer({
+        addr: "127.0.0.3:27015",
+        steamid: "3",
+        name: "Valve Matchmaking Server #3",
+        gametype: "valve,hidden",
+      }),
+    ]);
+
+    expect(
+      removeMissingNonValveServers([
+        steamServer({
+          addr: "127.0.0.2:27015",
+          steamid: "2",
+          name: "Present Community Server",
+        }),
+      ]),
+    ).toBe(1);
+
+    expect(getHydratedServerByIp("127.0.0.1:27015")).toBeUndefined();
+    expect(getHydratedServerByIp("127.0.0.2:27015")?.steamid).toBe("2");
+    expect(getHydratedServerByIp("127.0.0.3:27015")?.steamid).toBe("3");
+    expect(
+      getOnlineServers({ category: "all", hasUsersPlaying: false }).map(
+        (server) => server.ip,
+      ),
+    ).toEqual(["127.0.0.2:27015"]);
+    expect(
+      getOnlineServers({ category: "valve", hasUsersPlaying: false }).map(
+        (server) => server.ip,
+      ),
+    ).toEqual(["127.0.0.3:27015"]);
+  });
+
+  test("removes empty Valve servers without removing community servers", () => {
+    replaceServerIndexes({
+      reasonMapping: new Map(),
+      ipMapping: new Map(),
+      steamidMapping: new Map(),
+    });
+    setBlacklist(new Map());
+    mergeLiveServers([
+      steamServer({
+        addr: "127.0.0.1:27015",
+        steamid: "1",
+        name: "Valve Matchmaking Server #1",
+        gametype: "valve,hidden",
+        players: 0,
+      }),
+      steamServer({
+        addr: "127.0.0.2:27015",
+        steamid: "2",
+        name: "Valve Matchmaking Server #2",
+        gametype: "valve,hidden",
+        players: 12,
+      }),
+      steamServer({
+        addr: "127.0.0.3:27015",
+        steamid: "3",
+        name: "Empty Community Server",
+        players: 0,
+      }),
+    ]);
+
+    expect(removeEmptyValveServers()).toBe(1);
+
+    expect(getHydratedServerByIp("127.0.0.1:27015")).toBeUndefined();
+    expect(getHydratedServerByIp("127.0.0.2:27015")?.steamid).toBe("2");
+    expect(getHydratedServerByIp("127.0.0.3:27015")?.steamid).toBe("3");
   });
 });

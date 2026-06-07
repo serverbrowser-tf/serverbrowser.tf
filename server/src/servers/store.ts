@@ -144,6 +144,55 @@ export function clearMissingPlayerCounts() {
   }
 }
 
+function removeServerFromIndexes(server: ServerInfo) {
+  allServersByIp.delete(server.ip);
+  if (server.steamid && allServersBySteamId.get(server.steamid) === server) {
+    allServersBySteamId.delete(server.steamid);
+  }
+  for (const serversByReason of allServersByBlacklist.values()) {
+    serversByReason.delete(server.ip);
+  }
+}
+
+function removeServers(predicate: (server: ServerInfo) => boolean) {
+  let removed = 0;
+  for (const server of Array.from(allServersByIp.values())) {
+    if (!predicate(server)) {
+      continue;
+    }
+    removeServerFromIndexes(server);
+    removed += 1;
+  }
+  if (removed > 0) {
+    rebuildServerBuckets();
+  }
+  return removed;
+}
+
+export function removeMissingNonValveServers(
+  steamServers: SteamWebApiServerInfo[],
+) {
+  const steamids = new Set(steamServers.map((server) => server.steamid));
+  const addresses = new Set(steamServers.map((server) => server.addr));
+  return removeServers((server) => {
+    if (isValveServer(server)) {
+      return false;
+    }
+    return server.steamid
+      ? !steamids.has(server.steamid)
+      : !addresses.has(server.ip);
+  });
+}
+
+export function removeEmptyValveServers() {
+  return removeServers((server) => {
+    if (!isValveServer(server)) {
+      return false;
+    }
+    return (server.players ?? 0) - (server.bots ?? 0) === 0;
+  });
+}
+
 export function mergeLiveServers(steamServers: SteamWebApiServerInfo[]) {
   cleanupServerInfo(steamServers);
   const legacyServers = steamWebApiServerInfoToLegacy(steamServers);
@@ -324,6 +373,13 @@ export function getVisibilityByIp(ip: string): 0 | 1 | undefined {
     return visibility;
   }
   return undefined;
+}
+
+export function setServerVisibility(steamid: string, visibility: 0 | 1) {
+  const server = allServersBySteamId.get(steamid);
+  if (server) {
+    server.visibility = visibility;
+  }
 }
 
 export function getHydratedServersByIp() {

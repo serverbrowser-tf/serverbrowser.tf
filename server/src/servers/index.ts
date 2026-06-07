@@ -32,9 +32,7 @@ function filterHidden(servers: SteamWebApiServerInfo[]) {
 
 const commonFilters = "\\appid\\440\\secure\\1\\gamedir\\tf";
 
-async function fetchSteamServers(
-  url: URL,
-): Promise<SteamWebApiServerInfo[]> {
+async function fetchSteamServers(url: URL): Promise<SteamWebApiServerInfo[]> {
   const timeout = AbortSignal.timeout(180_000);
   const response = await fetch(url.toString(), {
     signal: timeout,
@@ -52,14 +50,15 @@ async function fetchSteamServers(
     throw new Error("Steam server browser response did not include servers");
   }
 
+  console.info(`Steam Web API returned ${servers.length} servers`);
   recordSteamServerBrowserSuccess();
   return servers;
 }
 
-export async function getAllServers() {
+export async function getNonValveServers() {
   try {
     const url = getServerListUrl();
-    url.searchParams.set("filter", commonFilters);
+    url.searchParams.set("filter", `${commonFilters}\\ngametype\\valve`);
 
     const servers = await fetchSteamServers(url);
     return filterHidden(servers);
@@ -67,10 +66,12 @@ export async function getAllServers() {
     recordSteamServerBrowserFailure(e);
     console.error(e);
   }
-  return [];
+  return null;
 }
 
-export async function getListOfServers(): Promise<SteamWebApiServerInfo[]> {
+export async function getListOfServers(): Promise<
+  SteamWebApiServerInfo[] | null
+> {
   try {
     const url = getServerListUrl();
     url.searchParams.set("filter", `${commonFilters}\\empty\\1`);
@@ -81,5 +82,5 @@ export async function getListOfServers(): Promise<SteamWebApiServerInfo[]> {
     recordSteamServerBrowserFailure(e);
     console.error(e);
   }
-  return [];
+  return null;
 }

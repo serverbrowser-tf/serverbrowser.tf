@@ -117,6 +117,19 @@ VALUES
     expect(row?.is_valve).toBe(1);
   });
 
+  test("updater persists visibility by Steam ID", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    await updater.updateServers([server({ visibility: 0 })]);
+
+    updater.updateServerVisibilityBySteamId([{ steamid: "1", visibility: 1 }]);
+
+    const row = db
+      .query<{ visibility: number }, []>("SELECT visibility FROM servers")
+      .get();
+    expect(row?.visibility).toBe(1);
+  });
+
   test("aggregates Valve player counts by timestamp and hours by map", () => {
     const db = createDb();
     const now = Math.floor(Date.now() / 1000);
