@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-07
+
+* Fixed dead servers showing up in the browser
+
 ## 2026-05-23
 
 * Added server observations for historical server/player/map snapshots
