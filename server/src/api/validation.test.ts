@@ -11,12 +11,10 @@ import {
 describe("request validation", () => {
   test("accepts valid login bodies and rejects invalid ones", () => {
     expect(
-      parseLoginBody({ username: "hemorrhoids", password: "secret" }).success,
+      parseLoginBody({ password: "secret" }).success,
     ).toBe(true);
-    expect(parseLoginBody({ username: "hemorrhoids" }).success).toBe(false);
-    expect(parseLoginBody({ username: 1, password: "secret" }).success).toBe(
-      false,
-    );
+    expect(parseLoginBody({}).success).toBe(false);
+    expect(parseLoginBody({ password: 1 }).success).toBe(false);
   });
 
   test("rejects invalid ban bodies", () => {

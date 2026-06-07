@@ -3,7 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import serverTiming from "server-timing";
 import promBundle from "express-prom-bundle";
-import login, { isLoggedIn, isValidLogin } from "./api/login";
+import login, { isLoggedIn, isValidToken } from "./api/login";
 import maps from "./api/maps";
 import servers from "./api/servers";
 import misc from "./api/misc";
@@ -32,10 +32,7 @@ function isMetricsBasicAuthValid(header: string | undefined) {
     return false;
   }
 
-  return isValidLogin(
-    decoded.slice(0, separatorIndex),
-    decoded.slice(separatorIndex + 1),
-  );
+  return isValidToken(decoded.slice(separatorIndex + 1));
 }
 
 app.use(cookieParser());

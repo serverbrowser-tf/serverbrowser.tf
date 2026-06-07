@@ -5,10 +5,10 @@ import { useNavigate } from "react-router";
 import { useAtom } from "./globals.ts";
 import { checkLogin, loggedInAtom } from "./globals.ts";
 
-const submitLogin = async (username: string, password: string) => {
+const submitLogin = async (password: string) => {
   const json = await api(`${apiRoute}/api/login`, {
     method: "POST",
-    body: { username, password },
+    body: { password },
   });
 
   if (!json.success) {
@@ -35,10 +35,9 @@ export const Login = () => {
         onSubmit={async (event) => {
           event.preventDefault();
           const formData = new FormData(event.currentTarget);
-          const username = formData.get("username");
           const password = formData.get("password");
           try {
-            await submitLogin(username as string, password as string);
+            await submitLogin(password as string);
             if (checkLogin()) {
               setError("");
               navigate("/");
@@ -53,11 +52,7 @@ export const Login = () => {
         }}
       >
         <label>
-          Username
-          <input type="text" name="username" autoComplete="username" required />
-        </label>
-        <label>
-          Password
+          Admin token
           <input
             type="password"
             name="password"

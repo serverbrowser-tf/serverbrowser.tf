@@ -51,27 +51,27 @@ export function assert(x: any, msg?: string): asserts x {
 
 export const banAtom = new Atom<ServerInfo | undefined>(undefined);
 
-function isAuthorizied() {
+function isAuthorized() {
   return document.cookie
     .split(";")
-    .some((cookie) => cookie.trim().startsWith("authorizedkey="));
+    .some((cookie) => cookie.trim() === "authenticated=1");
 }
 
-export const loggedInAtom = new Atom<boolean>(isAuthorizied());
+export const loggedInAtom = new Atom<boolean>(isAuthorized());
 
 loggedInAtom.addEventListener("change", () => {
-  if (!loggedInAtom) {
+  if (!loggedInAtom.value) {
     banAtom.value = undefined;
-    window.location.assign("/#/login");
+    window.location.assign("/login");
   }
 });
 
 export const checkLogin = () => {
-  return (loggedInAtom.value = isAuthorizied());
+  return (loggedInAtom.value = isAuthorized());
 };
 
 export const logout = () => {
-  document.cookie = "authorizedkey=;expires=Thu, 01 Jan 1970 00:00:01 GMT";
+  void fetch("/api/logout", { method: "POST", keepalive: true });
   loggedInAtom.value = false;
 };
 
