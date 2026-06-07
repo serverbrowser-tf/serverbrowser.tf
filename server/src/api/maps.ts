@@ -28,7 +28,20 @@ router.get(
     res.setHeader("Cache-Control", "public, max-age=3600");
 
     res.startTime("db", "");
-    const mapServers = await dataloaders.mapServers.load(map);
+    let mapServers;
+    try {
+      mapServers = await dataloaders.mapServers.load(map);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === `Could not find map ${map}`
+      ) {
+        res.endTime("db");
+        res.status(404).end();
+        return;
+      }
+      throw error;
+    }
     res.endTime("db");
 
     res.json({
