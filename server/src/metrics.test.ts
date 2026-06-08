@@ -25,6 +25,19 @@ beforeEach(() => {
 });
 
 describe("health metrics", () => {
+  test("reports empty request latency stats", () => {
+    expect(getRequestLatencyMetrics()).toEqual({
+      total: {
+        count: 0,
+        averageMs: null,
+        medianMs: null,
+        p95Ms: null,
+        p99Ms: null,
+      },
+      paths: {},
+    });
+  });
+
   test("counts exact request statuses over the last hour", () => {
     recordRequestStatus(200, now - 1_000);
     recordRequestStatus(200, now - 500);
@@ -73,6 +86,7 @@ describe("health metrics", () => {
       total: {
         count: 1,
         averageMs: 20,
+        medianMs: 20,
         p95Ms: 20,
         p99Ms: 20,
       },
@@ -80,6 +94,7 @@ describe("health metrics", () => {
         "/api/location": {
           count: 1,
           averageMs: 20,
+          medianMs: 20,
           p95Ms: 20,
           p99Ms: 20,
         },
@@ -118,6 +133,7 @@ describe("health metrics", () => {
       total: {
         count: 3,
         averageMs: 30,
+        medianMs: 30,
         p95Ms: 50,
         p99Ms: 50,
       },
@@ -125,12 +141,14 @@ describe("health metrics", () => {
         "/api/server-details-v2/#ip": {
           count: 2,
           averageMs: 20,
+          medianMs: 20,
           p95Ms: 30,
           p99Ms: 30,
         },
         "/api/maps/details/#map": {
           count: 1,
           averageMs: 50,
+          medianMs: 50,
           p95Ms: 50,
           p99Ms: 50,
         },
@@ -146,6 +164,7 @@ describe("health metrics", () => {
     expect(getRequestLatencyMetrics().total).toEqual({
       count: 100,
       averageMs: 51.5,
+      medianMs: 51.5,
       p95Ms: 96,
       p99Ms: 100,
     });
@@ -159,6 +178,7 @@ describe("health metrics", () => {
     expect(getRequestLatencyMetrics().paths["/api/servers"]).toEqual({
       count: 100,
       averageMs: 51.5,
+      medianMs: 51.5,
       p95Ms: 96,
       p99Ms: 100,
     });
@@ -177,6 +197,7 @@ describe("health metrics", () => {
     expect(getRequestLatencyMetrics().paths["/api/servers"]).toEqual({
       count: 100,
       averageMs: 97.16,
+      medianMs: 100,
       p95Ms: 100,
       p99Ms: 100,
     });

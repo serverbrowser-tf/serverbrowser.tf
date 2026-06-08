@@ -41,6 +41,7 @@ interface RequestLatencyWindow {
 export interface RequestLatencyStats {
   count: number;
   averageMs: number | null;
+  medianMs: number | null;
   p95Ms: number | null;
   p99Ms: number | null;
 }
@@ -161,6 +162,18 @@ function getPercentile(values: number[], percentile: number) {
   return values[index];
 }
 
+function getMedian(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const middle = Math.floor(values.length / 2);
+  if (values.length % 2 === 1) {
+    return values[middle];
+  }
+  return (values[middle - 1] + values[middle]) / 2;
+}
+
 function getRequestLatencyStats(
   window: RequestLatencyWindow,
 ): RequestLatencyStats {
@@ -168,6 +181,7 @@ function getRequestLatencyStats(
     return {
       count: 0,
       averageMs: null,
+      medianMs: null,
       p95Ms: null,
       p99Ms: null,
     };
@@ -176,6 +190,7 @@ function getRequestLatencyStats(
   return {
     count: window.count,
     averageMs: window.sum / window.count,
+    medianMs: getMedian(window.sortedValues),
     p95Ms: getPercentile(window.sortedValues, 0.95),
     p99Ms: getPercentile(window.sortedValues, 0.99),
   };

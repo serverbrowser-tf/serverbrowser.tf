@@ -23,6 +23,7 @@ const requests = {
     total: {
       count: 3,
       averageMs: 20,
+      medianMs: 20,
       p95Ms: 30,
       p99Ms: 30,
     },
@@ -30,6 +31,7 @@ const requests = {
       "/api/servers": {
         count: 3,
         averageMs: 20,
+        medianMs: 20,
         p95Ms: 30,
         p99Ms: 30,
       },
