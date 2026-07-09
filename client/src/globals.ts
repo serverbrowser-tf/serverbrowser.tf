@@ -332,6 +332,14 @@ export const officialMaps = new Set([
   "2koth_abbey",
   "koth_winter_ridge",
   "pd_nutcracker",
+
+  // summer 2026
+  "koth_camp_saxton",
+  "koth_dryfield",
+  "cp_mojave",
+  "cp_premuda",
+  "pl_redwood",
+  "koth_shorelight",
 ]);
 
 export const geoIpAtom = new Atom<[number, number] | null | undefined>(
