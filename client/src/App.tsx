@@ -329,6 +329,7 @@ function App() {
     "password-protected",
     false,
   );
+  const [vanillaMapsForVanilla, setVanillaMapsForVanilla] = useLocalStorage("vanilla-maps-vanilla", true);
   const [vanillaMaps, setVanillaMaps] = useLocalStorage("vanilla-maps", false);
   const [customMaps, setCustomMaps] = useLocalStorage("custom-maps", false);
   const [maxPlayerCount, setMaxPlayerCount] = useLocalStorage<null | number>(
@@ -461,6 +462,8 @@ function App() {
     }
   }, [serverToBan, isLoggedIn, refetch]);
 
+  const isVanillaSelected = category === 'vanilla' ? vanillaMapsForVanilla : vanillaMaps;
+
   const sortedRows = useMemo((): RowData[] => {
     if (data == null) {
       return [];
@@ -490,7 +493,8 @@ function App() {
     if (map) {
       copy = copy.filter((server) => server.map?.includes(map));
     }
-    if (vanillaMaps) {
+    const isVanillaSelected = category === 'vanilla' ? vanillaMapsForVanilla : vanillaMaps;
+    if (isVanillaSelected) {
       copy = copy.filter((server) => {
         return officialMaps.has(server.map!);
       });
@@ -602,6 +606,7 @@ function App() {
     notFull,
     sortColumns,
     vanillaMaps,
+    isVanillaSelected,
     customMaps,
     hasUsersPlaying,
     mustIncludeTags,
@@ -1020,8 +1025,24 @@ function App() {
                 <input
                   type="checkbox"
                   name="vanillaMaps"
-                  checked={vanillaMaps}
-                  onChange={(e) => setVanillaMaps(e.currentTarget.checked)}
+                  checked={isVanillaSelected}
+                  onChange={(e) => {
+                    if (category === 'vanilla') {
+                      if (e.currentTarget.checked) {
+                        setVanillaMapsForVanilla(true);
+                      } else {
+                        setVanillaMapsForVanilla(false);
+                        setVanillaMaps(false);
+                      }
+                    } else {
+                      if (e.currentTarget.checked) {
+                        setVanillaMapsForVanilla(true);
+                        setVanillaMaps(true);
+                      } else {
+                        setVanillaMaps(false);
+                      }
+                    }
+                  }}
                 />
                 Vanilla Maps
               </label>
