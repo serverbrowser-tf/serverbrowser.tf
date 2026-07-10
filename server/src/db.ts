@@ -666,6 +666,71 @@ order by blacklist.reason
 
       return blacklistByIp;
     },
+    adminBlacklist() {
+      const queryStr = `
+SELECT s.ip,
+       s.steamid,
+       s.name,
+       s.keyword AS keywords,
+       s.region,
+       s.visibility,
+       s.maxPlayers,
+       s.last_online,
+       s.is_valve,
+       m.map,
+       blacklist.reason,
+       sa.active_hours
+FROM blacklist
+INNER JOIN servers s ON s.id = blacklist.server_id
+LEFT JOIN maps m ON m.id = s.map_id
+LEFT JOIN (
+  SELECT active_s.id AS server_id,
+         (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
+  FROM servers active_s
+  CROSS JOIN server_players sp INDEXED BY idx_server_players_active_hours
+  WHERE sp.server_id = active_s.id
+  AND sp.player_count >= 10
+  AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+  GROUP BY active_s.id
+) sa on sa.server_id = s.id
+ORDER BY blacklist.reason, s.name, s.ip
+`;
+      const query = db.prepare<
+        {
+          ip: string;
+          steamid: string | null;
+          name: string;
+          keywords: string;
+          region: number;
+          visibility: 0 | 1;
+          maxPlayers: number;
+          last_online: number | null;
+          is_valve: 0 | 1;
+          map: string | null;
+          reason: string;
+          active_hours: number | null;
+        },
+        []
+      >(queryStr);
+
+      return query.all().map((row): UnhydratedServerInfo => ({
+        ip: row.ip,
+        steamid: row.steamid ?? undefined,
+        server: row.ip,
+        name: row.name,
+        map: row.map ?? undefined,
+        keywords: row.keywords,
+        players: 0,
+        maxPlayers: row.maxPlayers,
+        visibility: row.visibility,
+        region: row.region,
+        category: row.reason,
+        geoip: null,
+        active_hours: row.active_hours ?? undefined,
+        last_online: row.last_online ?? undefined,
+        is_valve: row.is_valve,
+      }));
+    },
     adminView() {
       const queryStr = `
 WITH active_servers AS MATERIALIZED (

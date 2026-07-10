@@ -9,6 +9,7 @@ export type Tab =
   | "valve"
   | "favorites"
   | "blacklist"
+  | "categories"
   | "admin"
   | "maps";
 
@@ -28,6 +29,8 @@ export const TabsHeader = () => {
     tab = "valve";
   } else if (location.pathname.startsWith("/blacklist")) {
     tab = "blacklist";
+  } else if (location.pathname.startsWith("/admin-view/categories")) {
+    tab = "categories";
   } else if (location.pathname.startsWith("/admin-view")) {
     tab = "admin";
   } else if (location.pathname.startsWith("/maps")) {
@@ -87,14 +90,24 @@ export const TabsHeader = () => {
         </Link>
       }
       {loggedIn && (
-        <Link
-          to="/admin-view"
-          className={cx("tab link-button", tab === "admin" && "active")}
-          draggable={false}
-          replace
-        >
-          Admin view
-        </Link>
+        <>
+          <Link
+            to="/admin-view"
+            className={cx("tab link-button", tab === "admin" && "active")}
+            draggable={false}
+            replace
+          >
+            Admin view
+          </Link>
+          <Link
+            to="/admin-view/categories"
+            className={cx("tab link-button", tab === "categories" && "active")}
+            draggable={false}
+            replace
+          >
+            Categories
+          </Link>
+        </>
       )}
 
       <input

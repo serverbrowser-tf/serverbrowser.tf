@@ -106,6 +106,9 @@ describe("health metrics", () => {
     expect(normalizeMetricsPath("/api/servers.json/admin-view")).toBe(
       "/api/servers.json/admin-view",
     );
+    expect(normalizeMetricsPath("/api/admin/blacklist")).toBe(
+      "/api/admin/blacklist",
+    );
     expect(normalizeMetricsPath("/api/details/127.0.0.1:27015")).toBe(
       "/api/details/#ip",
     );

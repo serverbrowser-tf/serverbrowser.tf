@@ -15,6 +15,7 @@ import { Maps } from "./Maps.tsx";
 import { MapView } from "./MapInfo.tsx";
 import { Title } from "./Title.tsx";
 import { ServerPage } from "./ServerPage.tsx";
+import { Categories } from "./Categories.tsx";
 
 day.extend(localizedFormat);
 day.extend(utc);
@@ -49,6 +50,7 @@ root.render(
           <Route path="/maps/*" element={<Maps />} />
           <Route path="/login" element={<Login />} />
           <Route path="/admin-view" element={<App />} />
+          <Route path="/admin-view/categories" element={<Categories />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

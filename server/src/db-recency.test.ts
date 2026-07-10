@@ -56,4 +56,33 @@ describe("recent server queries", () => {
     expect(maps).toEqual([{ map: "cp_badlands", hours: 1, servers: 1 }]);
     expect([...allServers.ipMapping.keys()]).toEqual(["203.0.113.1:27015"]);
   });
+
+  test("lists blacklisted servers for admin category management", () => {
+    const db = createMigratedDb();
+    const now = Math.floor(Date.now() / 1000);
+    db.run("INSERT INTO maps (id, map) VALUES (1, 'cp_badlands')");
+    db.query(
+      `INSERT INTO servers
+        (id, ip, steamid, name, keyword, region, map_id, visibility, maxPlayers, last_online, is_valve)
+       VALUES (?, ?, ?, ?, ?, 0, 1, 0, 24, ?, 0)`,
+    ).run(1, "203.0.113.1:27015", "1", "Categorized", "nocrits", now);
+    db.query(
+      `INSERT INTO blacklist (server_id, reason)
+       VALUES (?, ?)`,
+    ).run(1, "dm");
+
+    const dataloaders = buildDataloaders(db);
+    const rows = dataloaders.adminBlacklist();
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        ip: "203.0.113.1:27015",
+        name: "Categorized",
+        map: "cp_badlands",
+        keywords: "nocrits",
+        category: "dm",
+        last_online: now,
+      }),
+    ]);
+  });
 });

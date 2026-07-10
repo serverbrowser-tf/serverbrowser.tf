@@ -16,6 +16,7 @@ export interface UnhydratedServerInfo {
   category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
+  last_online?: number;
   is_valve?: 0 | 1;
 }
 
@@ -34,6 +35,7 @@ export interface HydratedServerInfo {
   category?: string;
   geoip: [number, number] | null;
   active_hours?: number;
+  last_online?: number;
   is_valve?: 0 | 1;
 }
 

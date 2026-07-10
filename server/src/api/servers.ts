@@ -202,6 +202,26 @@ apiRouter.post(
 );
 
 apiRouter.get(
+  "/api/admin/blacklist",
+  isLoggedInMiddleware,
+  asyncify(async (_req, res) => {
+    res.setHeader("Cache-Control", `private, max-age=30`);
+
+    const dataloaders = buildDataloaders(db);
+    const rows: ServerInfo[] = dataloaders.adminBlacklist();
+
+    for (const row of rows) {
+      const hydratedServer = getHydratedServerByIp(row.ip);
+      if (hydratedServer != null) {
+        Object.assign(row, hydratedServer, { category: row.category });
+      }
+    }
+
+    res.json(rows);
+  }),
+);
+
+apiRouter.get(
   "/api/servers.json/admin-view",
   isLoggedInMiddleware,
   asyncify(async (req, res) => {

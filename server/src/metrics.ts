@@ -220,6 +220,7 @@ export function normalizeMetricsPath(path: string) {
     case "/api/health":
     case "/api/location":
     case "/api/login":
+    case "/api/admin/blacklist":
     case "/api/maps":
     case "/api/servers":
     case "/api/servers/all":

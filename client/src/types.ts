@@ -26,6 +26,7 @@ interface HydratedServerInfo {
   region: number;
   geoip: [number, number] | null;
   active_hours?: number;
+  last_online?: number;
   category?: keyof typeof publicCategories;
   is_valve?: 0 | 1;
 }
@@ -45,6 +46,7 @@ interface UnhydratedServerInfo {
   region: number;
   geoip: [number, number] | null;
   active_hours?: number;
+  last_online?: number;
   category?: keyof typeof publicCategories;
   is_valve?: 0 | 1;
 }
