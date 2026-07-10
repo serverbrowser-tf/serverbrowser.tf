@@ -205,7 +205,7 @@ apiRouter.get(
   "/api/admin/blacklist",
   isLoggedInMiddleware,
   asyncify(async (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Cache-Control", "private, max-age=30");
 
     const dataloaders = buildDataloaders(db);
     const rows: ServerInfo[] = dataloaders.adminBlacklist();

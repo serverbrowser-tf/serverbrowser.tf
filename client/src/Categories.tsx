@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Column, SortColumn } from "react-data-grid";
 import day from "dayjs";
 
@@ -17,6 +17,7 @@ const categoryOptions = [
   ...Object.entries(publicCategories),
   ["fake players", "Fake players"],
 ];
+const categoriesQueryKey = ["admin", "categories"];
 
 function compareValues(a: unknown, b: unknown) {
   if (a == null || b == null) {
@@ -51,13 +52,11 @@ function formatLastOnline(lastOnline: number | undefined) {
 
 export function Categories() {
   const [pendingIps, setPendingIps] = useState(new Set<string>());
-  const { data, refetch } = useQuery<CategoryRow[]>({
-    queryKey: ["admin", "categories"],
+  const queryClient = useQueryClient();
+  const { data } = useQuery<CategoryRow[]>({
+    queryKey: categoriesQueryKey,
     queryFn: async ({ signal }) => {
-      return api<CategoryRow[]>(`${apiRoute}/api/admin/blacklist`, {
-        signal,
-        cache: "no-store",
-      });
+      return api<CategoryRow[]>(`${apiRoute}/api/admin/blacklist`, { signal });
     },
     refetchInterval: 1000 * 30,
     refetchOnWindowFocus: true,
@@ -70,7 +69,20 @@ export function Categories() {
         method: "POST",
         body: { ip, reason },
       });
-      await refetch();
+      queryClient.setQueryData<CategoryRow[]>(categoriesQueryKey, (old) => {
+        if (old == null) {
+          return old;
+        }
+        if (reason === "") {
+          return old.filter((row) => row.ip !== ip);
+        }
+        return old.map((row) => {
+          if (row.ip !== ip) {
+            return row;
+          }
+          return { ...row, category: reason };
+        });
+      });
     } finally {
       setPendingIps((old) => {
         const next = new Set(old);
