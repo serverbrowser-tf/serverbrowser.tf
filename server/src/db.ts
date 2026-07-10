@@ -679,20 +679,16 @@ SELECT s.ip,
        s.is_valve,
        m.map,
        blacklist.reason,
-       sa.active_hours
+       (
+         SELECT COUNT(DISTINCT sp.timestamp) * 0.5
+         FROM server_players sp INDEXED BY idx_server_players_active_hours
+         WHERE sp.server_id = s.id
+         AND sp.player_count >= 10
+         AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
+       ) active_hours
 FROM blacklist
 INNER JOIN servers s ON s.id = blacklist.server_id
 LEFT JOIN maps m ON m.id = s.map_id
-LEFT JOIN (
-  SELECT active_s.id AS server_id,
-         (COUNT(DISTINCT sp.timestamp) * 0.5) active_hours
-  FROM servers active_s
-  CROSS JOIN server_players sp INDEXED BY idx_server_players_active_hours
-  WHERE sp.server_id = active_s.id
-  AND sp.player_count >= 10
-  AND sp.timestamp >= CAST(strftime('%s', date('now', '-28 days')) AS INTEGER)
-  GROUP BY active_s.id
-) sa on sa.server_id = s.id
 ORDER BY blacklist.reason, s.name, s.ip
 `;
       const query = db.prepare<

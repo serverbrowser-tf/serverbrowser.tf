@@ -54,7 +54,10 @@ export function Categories() {
   const { data, refetch } = useQuery<CategoryRow[]>({
     queryKey: ["admin", "categories"],
     queryFn: async ({ signal }) => {
-      return api<CategoryRow[]>(`${apiRoute}/api/admin/blacklist`, { signal });
+      return api<CategoryRow[]>(`${apiRoute}/api/admin/blacklist`, {
+        signal,
+        cache: "no-store",
+      });
     },
     refetchInterval: 1000 * 30,
     refetchOnWindowFocus: true,
