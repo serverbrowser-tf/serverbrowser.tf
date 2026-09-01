@@ -5,6 +5,7 @@ import geoIp2 from "geoip-lite2";
 import { chunk, memoize } from "lodash";
 import QuickLRU from "quick-lru";
 
+import { NotFoundError } from "./errors";
 import {
   HydratedServerInfo,
   ServerInfo,
@@ -107,8 +108,7 @@ const buildQueryBindings = (
 
   console.assert(
     countChar(bindings, "?") * rows <= 500,
-    `using too many bindings (${
-      countChar(bindings, "?") * rows
+    `using too many bindings (${countChar(bindings, "?") * rows
     }). shit might get fucked. Query: ${insertQuery}`,
   );
 
@@ -145,7 +145,7 @@ SELECT steamid, id FROM servers WHERE steamid in {}
       return steamids.map(
         (steamid) =>
           recordsBySteamId[steamid] ??
-          new Error(`Could not find steamid ${steamid}`),
+          new NotFoundError(`Could not find steamid ${steamid}`),
       );
     },
     {
@@ -169,7 +169,7 @@ SELECT ip, id FROM servers WHERE ip in {}
       }
 
       return ips.map(
-        (ip) => recordsByIp[ip] ?? new Error(`Could not find ip ${ip}`),
+        (ip) => recordsByIp[ip] ?? new NotFoundError(`Could not find ip ${ip}`),
       );
     },
     {
@@ -194,7 +194,8 @@ SELECT map, id FROM maps WHERE map in {}
       }
 
       return maps.map(
-        (map) => recordsByMap[map] ?? new Error(`Could not find map ${map}`),
+        (map) =>
+          recordsByMap[map] ?? new NotFoundError(`Could not find map ${map}`),
       );
     },
     {
@@ -385,7 +386,7 @@ ORDER BY sp.server_id;
       return steamids.map(
         (steamid) =>
           mapping.get(steamid) ??
-          new Error(`Could not find steamid ${steamid}`),
+          new NotFoundError(`Could not find steamid ${steamid}`),
       );
     },
   );
@@ -488,7 +489,7 @@ SELECT ip, long, lat FROM server_locations WHERE ip in {}
       return ips.map((ip, i): UnhydratedServerInfo | Error => {
         const server = map.get(ip);
         if (server == null) {
-          return new Error(`Could not find ip ${ip}`);
+          return new NotFoundError(`Could not find ip ${ip}`);
         }
         const geoip = geoips[i];
 
@@ -924,10 +925,17 @@ export const buildUpdaterService = memoize(function buildUpdaterService(
   };
 
   const resolveServerId = async (server: HydratedServerInfo) => {
-    if (server.steamid) {
-      return dataloaders.serverId.load(server.steamid as SteamId);
+    try {
+      if (server.steamid) {
+        return await dataloaders.serverId.load(server.steamid as SteamId);
+      }
+      return await dataloaders.serverIdByIp.load(server.ip);
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return null;
+      }
+      throw error;
     }
-    return dataloaders.serverIdByIp.load(server.ip);
   };
   const upsertMaps = (maps: string[]) => {
     db.transaction(() => {
@@ -1083,8 +1091,7 @@ VALUES {}
           hours,
         ])
         .filter((info): info is number[] => {
-          if (info[0] instanceof Error) {
-            console.error("updateServerPlayers", info[0]);
+          if (info[0] == null) {
             return false;
           }
           if (info[1] == null) {
@@ -1133,8 +1140,7 @@ ON CONFLICT(server_id, timestamp, map_id) DO UPDATE SET
           server.players - server.bots,
         ])
         .filter((info): info is number[] => {
-          if (info[0] instanceof Error) {
-            console.error("updateServerObservations", info[0]);
+          if (info[0] == null) {
             return false;
           }
           if (info[1] == null) {
@@ -1181,8 +1187,7 @@ VALUES {}
           Math.floor(+date / 1000),
         ])
         .filter((info): info is number[] => {
-          if (info[0] instanceof Error) {
-            console.error("updateServerMapHours", info[0]);
+          if (info[0] == null) {
             return false;
           }
           if (info[1] == null) {
@@ -1236,7 +1241,7 @@ ON CONFLICT(server_id) DO UPDATE SET
         const serverId = await dataloaders.serverIdByIp.load(ip);
         const query = await db.query(queryStr);
         query.run(serverId);
-      } catch {}
+      } catch { }
     },
     updateLastOnlineByIp(ips: string[]) {
       const queryStr = `

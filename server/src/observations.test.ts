@@ -192,6 +192,53 @@ ORDER BY so.id
     ]);
   });
 
+  test("updater skips a missing server without dropping the rest of the batch", async () => {
+    const db = createDb();
+    const updater = buildUpdaterService(db);
+    const existingServer = server({ steamid: "1" });
+    const missingServer = server({
+      ip: "127.0.0.2:27015",
+      server: "127.0.0.2:27015",
+      steamid: "2",
+    });
+
+    await updater.updateServers([existingServer]);
+    await updater.updateServerPlayers(
+      [existingServer, missingServer],
+      60,
+      new Date("2026-05-22T13:14:15.900Z"),
+    );
+    await updater.updateServerObservations(
+      [existingServer, missingServer],
+      new Date("2026-05-22T13:14:15.900Z"),
+    );
+    await updater.updateServerMapHours(
+      [existingServer, missingServer],
+      60,
+      new Date("2026-05-22T13:14:15.900Z"),
+    );
+
+    const playerRows = db
+      .query<{ count: number }, []>("SELECT COUNT(*) count FROM server_players")
+      .get();
+    const observationRows = db
+      .query<
+        { count: number },
+        []
+      >("SELECT COUNT(*) count FROM server_observations")
+      .get();
+    const mapHourRows = db
+      .query<
+        { count: number },
+        []
+      >("SELECT COUNT(*) count FROM server_map_hours")
+      .get();
+
+    expect(playerRows?.count).toBe(1);
+    expect(observationRows?.count).toBe(1);
+    expect(mapHourRows?.count).toBe(1);
+  });
+
   test("updater skips map history for servers without maps", async () => {
     const db = createDb();
     const updater = buildUpdaterService(db);

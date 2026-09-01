@@ -365,14 +365,7 @@ apiRouter.get(
   cacheMiddleware,
   asyncify(async (req, res) => {
     const dataloaders = buildDataloaders(db);
-    const serverIdResult = (await dataloaders.serverIdByIp.load(
-      req.params.ip,
-    )) as number | Error;
-    const serverId = serverIdResult;
-    if (serverId instanceof Error) {
-      res.status(404).end();
-      return;
-    }
+    const serverId = await dataloaders.serverIdByIp.load(req.params.ip);
 
     const name = getHydratedServerByIp(req.params.ip)?.name ?? "";
     res.startTime("playerCounts", "");

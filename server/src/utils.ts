@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 
+import { NotFoundError } from "./errors";
+
 export const isDev = !!process.env.DEV
 
 export function sleep(ms: number) {
@@ -11,7 +13,12 @@ export function asyncify<
   Res extends Response = Response,
 >(fn: (req: Req, res: Res) => Promise<void>) {
   return function(req: Req, res: Res) {
-    fn(req, res).catch((e) => {
+    return fn(req, res).catch((e) => {
+      if (e instanceof NotFoundError) {
+        res.status(404).end();
+        return;
+      }
+
       console.error("asyncify", e);
       res.status(500).end();
     });

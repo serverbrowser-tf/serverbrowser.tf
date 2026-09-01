@@ -31,18 +31,9 @@ router.get(
     let mapServers;
     try {
       mapServers = await dataloaders.mapServers.load(map);
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === `Could not find map ${map}`
-      ) {
-        res.endTime("db");
-        res.status(404).end();
-        return;
-      }
-      throw error;
+    } finally {
+      res.endTime("db");
     }
-    res.endTime("db");
 
     res.json({
       map,
